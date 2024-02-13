@@ -1,0 +1,23 @@
+#lang rhombus
+
+
+class Posn2D(x, y):
+  nonfinal
+class Posn3D(z):
+  extends Posn2D
+
+
+// [1] Some Recursive function s.t.
+
+fun tailRec_1(pt :~ Posn2D):
+  Posn3D(tailRec(Posn2D((0, 0)), 1 + 2))
+
+// VERSUS
+
+// [2] Now we have the tail recursion on the end of the construction
+fun fun tailRec_2(pt :~ Posn2D):
+  Posn3D(z: 1 + 2, super.whatever: tailRec(Posn2D((0, 0))))
+
+// VERSUS 
+
+// [3] some behind the scenes reworking of the order in which parameters are passed in, maybe represented by some sort of dependency graph?

@@ -1,0 +1,14 @@
+#lang rhombus
+
+// Thompson style NFA creator
+
+class State(op, expression)
+
+
+fun parse(exp :~ Syntax):
+    match exp:
+    | '$x + $y':
+        print(x +& y)
+    //| '$e +':
+    //    State("+", e)
+    //| ~else: State("", e)
