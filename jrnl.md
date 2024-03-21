@@ -95,7 +95,30 @@ ex: (cat|dog)\1 -> catcat or dogdog (cat|dog)\2 -> catcatcat or dogdogdog etc. b
 _multi state search_: another thing you can do is to run both NFA's simultaniously, operating on every (viable) branch of the search at once, no backtracking, just linear time progress and cutting upon failure to match
  - "The efficiency comes from tracking the set of reachable states but not which paths were used to reach them. In an NFA with n nodes, there can only be n reachable states at any step, but there might be 2n paths through the NFA"
 
- __A General Question on Tail Optimization and Inheritence__
+__NEEDS?__
+ - character class? `[...]`
+ - character ranges? `a-z` || `0-9` etc.
+ - capture groups
+ - back references
+ - 
 
+
+~~__A General Question on Tail Optimization and Inheritence__
+// Makes no sense lol
 // half baked! -- unsure if this is even an issue, or something viable to work on
-For something like work/tail_recursion.rhm where a tail recursive call uses a parent class, since the parent classes parameters come first, if you recursed on the function to generated parent class' params would that mess up tail recursion optimization? is there a way to work around this? keywords? or perhaps some behind the scenes reordering of the parameters being passed? Could this mess something else up in a state-ful programming way?
+For something like work/tail_recursion.rhm where a tail recursive call uses a parent class, since the parent classes parameters come first, if you recursed on the function to generated parent class' params would that mess up tail recursion optimization? is there a way to work around this? keywords? or perhaps some behind the scenes reordering of the parameters being passed? Could this mess something else up in a state-ful programming way?~~
+
+
+
+make a writeiup on paper of what you want to add to regex layout
+add one
+regex is not super composable repatitions of regex -> back to string form then repeat then back to regex
+read rhombus paper
+read racket regex documentation
+
+
+# How are we testing accuracy? Fuzzer?
+
+\rx `numdot: (["0"-"9"]".") numdot*
+
+datatype.rhm
