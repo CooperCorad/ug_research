@@ -1,19 +1,17 @@
 NOTE: any defn that is followed by another defn indented at same level without a preceding
 '|' is the exact same 
 
-regexp  ::=  <atom>              # TODO: pces??
+regexp  ::=  <atom>
         |   <regexp>|<regexp>
 
 peices  ::=                         ; matches empty
         |   <peice><peices>
 
 peice   ::= <repeat>
-        |   <repeat><               ; thrify operator
-            <repeat> thrifty
-            <repeat> t
+        |   <repeat> lazy       ; lazy operator
         |   <atom>
 
-repeat  ::=  <atom>*
+repeat  ::= <atom>*
         |   <atom>+
         |   <atom>?
 
@@ -28,9 +26,11 @@ atom    ::= (<regexp>)              ; match & report
         |   <character>             ; any character (NO ESCAPES NEEDED)
         |   (mode:<mode>:<regexp>)  ; match using given mode
     #TODO shrubbery style defns
-            (m:<mode>:<regexp>)
-        |   (?><regexp>)            ; match only first 
+            (mode:<mode>:<regexp>)
+#TODO avoiding parentheses using shrubbery? entirely dependant on operator precedence?
+        |   (?><regexp>)            ; match only first -> works as lazy?
             (first <regexp>)
+            (lazy <regexp>)
             (f <regexp>)
         |   <look_to>               ; match empty if <look_to> matches
         |   (? <test> <peices> | <peices>)              ; if test match fst else match snd
@@ -40,7 +40,7 @@ atom    ::= (<regexp>)              ; match & report
         |   (? <test> <peices>)     ; if test match fst else empty
             (if <test> <peices>)
                                                             # e.g. is this even necessary??
-        |   def <name>: (<regexp>)   ; binds name (some rhombus valus character sequence that is not already named
+        |   def <name> = (<regexp>)   ; binds name (some rhombus valus character sequence that is not already named
                                     ; either in context or as an operator itself) and simultaniously asks to match on regexp
                                     ; e.g. rx `bind letters: (["a"-"zA"-"Z"]) 
                                         ; will simultaniously match on and bind on the pattern provided
@@ -52,8 +52,9 @@ atom    ::= (<regexp>)              ; match & report
         |   tab
         |   range <num_range>
 
-#TODO gonna need a serious think about the way the NO ESCAPES NEEDED policty effects literals and character ranges                                                           
-#TODO definitely needs rework!! seperate what and what cannot be concatinated in paricular
+    
+
+        # TODO disallow ?
 range   ::= <literal>               ; literally!
     ??  |   <literal><literal>      ; literally concatination!
         |   <literal>-<literal>     ; literally a unicode range
@@ -64,17 +65,16 @@ range   ::= <literal>               ; literally!
 
         # TODO no question marks
 look_to ::= (?= <regexp>)           ; match if regexp matches
-            (if <regexp>)           ; TODO no conflit with atomic?
+            (matches <regexp>)
         |   (?! <regexp>)           ; match if regexp does NOT match
-            (if not <regexp>)       ; TODO " ^^
+            (not matches <regexp>)
         |   (?<= <regexp>)          ; match if regexp matches preceding
-            (if previous <regexp>)
-            (if prev <regexp>)
+            (matches prev <regexp>)
         |   (?<! <regexp>)          ; match if preceding does not match
-            (if not previous <regexp>)
-            (if not prev <regexp>)
+            (not matches prev <regexp>)
 
-test    ::= (<n>)                   ; true if nth '(' has matches # TODO what the hell is this revisit
+
+test    ::= (<n>)                   ; true if nth '(' has matches # TODO revisit
         |   <look_to>               ; true if look_to matches
 
 

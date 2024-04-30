@@ -1,0 +1,284 @@
+#lang rhombus/static/and_meta
+import:
+  lib("racket/base.rkt").pregexp
+
+// An example use of `space.enforest`
+
+export:
+  // The main form:
+  rx
+
+  // Operators for use inside `rx'...'`:
+  any
+  || * ? ^ $
+
+  // Implicit operators, like the one before a literal string;
+  // we use `names` here so that these names are not
+  // misinterpreted as implicits in the `export` sublangauge!
+  names: #%literal #%comp #%parens #%juxtapose
+
+// Example regexps
+module test:
+  check:
+    rx'^ ("Hello" || "Hi") " "? ("Here"||"There") $'
+    ~completes
+  check:
+    rx'(^ "Hello" || "Hi"{1, 22} || "At("any*")") $'
+    ~completes
+  #// Come back?
+  #//
+  check:
+    rx'  (! any)+'
+    ~completes
+  check:
+    import lib("racket/base.rkt").#{regexp-match?}
+    def p = rx'"apple" || "banana"'
+    #{regexp-match?}(p, "apple") && #{regexp-match?}(p, "banana")
+    ~is #true
+
+
+
+  check:
+    import lib("racket/base.rkt").#{regexp-match?}
+    def p1 = rx'"drone"B'
+    def words = "dronemusic"
+    #{regexp-match?}(p1, words)
+    ~is #true
+  check:
+    import lib("racket/base.rkt").#{regexp-match?}
+    def p2 = rx'"drone"b'
+    def words = "dronemusic"
+    #{regexp-match?}(p2, words)
+    ~is #false
+  check:
+    import lib("racket/base.rkt").#{regexp-match?}
+    def p2 = rx'"drone"b'
+    def words = "drone music"
+    #{regexp-match?}(p2, words)
+    ~is #true
+  check:
+    import lib("racket/base.rkt")
+    def p1 = rx'(mode : {insensitive, multiline} : "a")'  
+    def p2 = #{pregexp}("(?im:a)")
+    p1 == p2
+    ~is #true
+    
+
+// Instantiate enforestation and macro machinery for the
+// regexp sublanguage:
+space.enforest regexp:
+  space_path my/space
+  macro_definer macro
+  meta_namespace regexp_meta:
+    description "regexp"
+    parse_syntax_class Parsed
+    parsed_packer do_pack
+    parsed_unpacker do_unpack
+    // This recursive parsing is what the default checker does:
+    #//
+    parse_checker: fun (stx, who):
+                     match stx
+                     | _ when do_unpack(stx, fun (x): #false): stx
+                     | (_ :: Syntax) && '$(next :: regexp_meta.Parsed)': next
+                     | _: syntax_meta.error("bad result", stx)
+    // Improve the error for an identifier that isn't an operator
+    identifier_parser: fun (id):
+                         syntax_meta.error("identifier not allowed", id)
+    export pack unpack
+    fun pack(s :: String) :: Syntax:
+      do_pack(s)
+    fun unpack(stx) :: String:
+      do_unpack(stx, #false).unwrap()
+
+expr.macro '«rx '$(pat :: regexp_meta.Parsed)'»':
+  'pregexp($(regexp_meta.unpack(pat)))'//TODO convert to string? let API handle pregexp etc.
+
+regexp.macro 'any': regexp_meta.pack(".")
+regexp.macro 'newline': regexp_meta.pack("\n")
+
+#//
+def n0_255 = rx'(mode: {}: digit // posix [0-9] keyword
+                            || digit digit
+                            || ["01"] digit digit
+                            || "2" ["0" - "4"] digit
+                            || "25" ["0" - "5"])'
+#//
+def ip = rx'^ n0_255 (mode: {}: "." n0_255){3} $'
+
+                      //TODO: for any string, run it through pregexp-quote ? but NOT identifier inserts, eg "[" -> "\\["
+
+// `#%literal` is implicitly added before literals, like strings,
+// that do not have an operator before
+regexp.macro '#%literal $(s :: String)':
+  import lib("racket/base.rkt").#{regexp-quote}
+  regexp_meta.pack(to_string(#{regexp-quote}(s.unwrap())))
+
+// `#%parens` is implicitly added before parentheses
+// that do not have a parsed term or operator before
+regexp.macro
+| '#%parens (mode : {$(mode :: Identifier), ...} : $(rgxp :: regexp_meta.Parsed))':
+    //~same_as ^
+    //def mutable accum = "(?"
+    def modes = (for values(accum = "(?") (m: [mode, ...]):
+                   match m
+                   | 'sensitive': accum +& "-i"
+                   | 'insensitive': accum +& "i"
+                   | 'multiline': accum +& "m"
+                   | 'monolne': accum +& "-m"
+                   | ~else: syntax_meta.error("mode: " ++ m ++ " not recognized"))
+    regexp_meta.pack(modes +& ":" ++ regexp_meta.unpack(rgxp) ++ ")")
+    
+| '#%parens (matches prev $(tst :: regexp_meta.Parsed))':
+    regexp_meta.pack("(?<=" ++ regexp_meta.unpack(tst) ++ ")")
+| '#%parens (not matches prev $(tst :: regexp_meta.Parsed))':
+    regexp_meta.pack("(?<!" ++ regexp_meta.unpack(tst) ++ ")")
+| '#%parens (matches $(tst :: regexp_meta.Parsed))':
+    regexp_meta.pack("(?=" ++ regexp_meta.unpack(tst) ++ ")")
+| '#%parens (not matches $(tst :: regexp_meta.Parsed))':
+    regexp_meta.pack("(?!" ++ regexp_meta.unpack(tst) ++")")
+    
+| '#%parens ($(n :: Int))':
+    unless n is_a PosInt  //TODO: does racket allow \0 backref or does it start at \1?
+    | syntax_meta.error("You cannot check a match on capture group number <= 0")
+    regexp_meta.pack("(" ++ n ++ ")")
+    
+| '#%parens ($(p :: regexp_meta.Parsed))':
+    regexp_meta.pack("(" ++regexp_meta.unpack(p) ++ ")")
+
+//| '#%parens (if $tst | #%alts $thn | #%alts $els)': 
+//    regexp_meta.pack("(?" ++ regexp_meta.unpack(tst) ++ regexp_meta.pack(thn) ++ "|" ++ regexp_meta.pack(els) ++ ")")
+module test:
+  check:
+    def p1 = rx'(matches "X"+)'
+    def p2 = #{pregexp}("(?=(X)+)") //TODO once again issues with atomic?
+    p1 == p2
+    ~is #true
+  
+  check:
+    def p1 = rx'(not matches "X"+)'
+    def p2 = #{pregexp}("(?!(X)+)") 
+    p1 == p2
+    ~is #true
+  
+  check:
+    def p1 = rx'(matches prev ("y")("X"))'
+    def p2 = #{pregexp}("(?<=(y)(X))") 
+    p1 == p2
+    ~is #true
+    
+  check:
+    def p1 = rx'(not matches prev ("X"))'
+    def p2 = #{pregexp}("(?<!(X))") 
+    p1 == p2
+    ~is #true
+    
+  #//
+  check:
+    ~eval
+    rx'("x")(0)'
+    ~throws "backreference"
+regexp.macro 'not property : $(prop :: Identifier)': // TODO not property {x} vs. property {^x} --> necessary to keep both?
+  regexp_meta.pack("\\P{" ++ to_string(prop) ++ "}") // additionally, does the not <x> thing feel tired? alternative?
+regexp.macro 'property : $(prop :: Identifier)':
+  regexp_meta.pack("\\p{" ++ to_string(prop) ++ "}")
+
+module test:
+  check:
+    def p1 = rx'property : Ll'
+    def p2 = #{pregexp}("\\p{Ll}")
+    p1 == p2
+    ~is #true
+
+  check:
+    def p1 = rx'not property :Ll'
+    def p2 = #{pregexp}("\\P{Ll}")
+    p1 == p2
+    ~is #true
+
+// `#%juxtapose` is implicitly added after something that's
+// parsed and before a non-operator
+regexp.macro '$left #%juxtapose $right':
+  ~same_as: #%call
+  regexp_meta.pack("" ++ regexp_meta.unpack(left) ++ regexp_meta.unpack(right))
+
+// `#%call` is implicitly added between a parsed term
+// and parentheses; we want just the same thing
+// as juxtaposition here, though
+regexp.macro '$left #%call $tail ...':
+  ~same_as: #%juxtapose
+  values('$left', '#%juxtapose $tail ...')
+
+meta:
+  fun atomic(stx) :~ String:
+    match regexp_meta.unpack(stx)
+    | ".": "."
+    | s: "(" +& to_string(s) +& ")" // TODO: originally s: "(?:" ++ s ++ ")" better?
+
+regexp.macro '$left || $right':
+  ~weaker_than: ~other
+  ~stronger_than: !
+  regexp_meta.pack(atomic(left) ++ "|" ++ atomic(right)) // TODO: atomic needed? likely no!
+
+regexp.macro '$left *':
+  ~stronger_than: #%juxtapose #%call
+  regexp_meta.pack(atomic(left) ++ "*")
+
+regexp.macro '$left +':
+  ~stronger_than: #%juxtapose #%call
+  regexp_meta.pack(atomic(left) ++ "+")
+
+regexp.macro '$left ?':
+  ~stronger_than: #%juxtapose #%call
+  regexp_meta.pack(atomic(left) ++ "?")
+
+// `#%comp` is implicitly added between a parsed term
+// and curly braces
+regexp.macro #%comp:
+  ~stronger_than: #%juxtapose #%call
+| '$left #%comp {$(min :: Int), _}':
+    regexp_meta.pack(atomic(left) ++ "{" +& min.unwrap() ++ ",}")
+| '$left #%comp {$(min :: Int), $(max :: Int)}':
+    regexp_meta.pack(atomic(left) ++ "{" +& min.unwrap() ++ "," +& max.unwrap() ++ "}")
+| '$left #%comp {$(count :: Int)}':
+    regexp_meta.pack(atomic(left) ++ "{" +& count.unwrap() ++ "}")
+
+regexp.macro 
+| '^ $right':
+    ~stronger_than: *
+    ~weaker_than: #%juxtapose #%call
+    ~same_as: $
+    regexp_meta.pack("^" ++ regexp_meta.unpack(right))
+
+regexp.macro
+| '$left $('$')':
+    ~weaker_than: #%juxtapose #%call
+    ~same_as: ^
+    regexp_meta.pack(regexp_meta.unpack(left) +& "$")
+| '$('$')($id :: Identifier)':
+     id
+     // meta.bridge to expand to actual identidfier && change def into a regexdef or rxdef form etc. 
+
+regexp.macro '! $right':
+  ~weaker_than: ~other
+  ~stronger_than: #%juxtpapose #%call
+  regexp_meta.pack("(?!" ++ regexp_meta.unpack(right) ++ ")")
+
+regexp.macro '$left b':
+  // TODO PRECEDENCE?
+  ~stronger_than: #%juxtapose #%call
+  ~same_as ^
+  regexp_meta.pack(atomic(left) ++ "\\b")
+
+regexp.macro '$left B':
+  ~stronger_than: #%juxtapose #%call
+  ~same_as ^
+  regexp_meta.pack(atomic(left) ++ "\\B")
+
+regexp.macro 'lazy $rgxp':
+  ~stronger_than ^
+  regexp_meta.pack("(?>" ++ regexp_meta.pack(rgxp) ++ ")")
+
+//regexp.macro  // (interior) PACK vs UNPACK?, also atomic diff btwn () and (?:)?
+  
+rx'^(mode: {insensitive, multiline}: "a.b"+) ("x"+)*'
+rx' "x"+ || "y"+'
