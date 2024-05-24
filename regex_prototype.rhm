@@ -1,6 +1,8 @@
 #lang rhombus/static/and_meta
+
 import:
-  lib("racket/base.rkt").pregexp
+  lib("racket/base.rkt") as base
+  file("character_class_lang.rhm") open
 
 // An example use of `space.enforest`
 
@@ -9,13 +11,14 @@ export:
   rx
 
   // Operators for use inside `rx'...'`:
-  any
-  || * ? ^ $
+  any newline
+  || * ? ^ $ lazy ! word in only 
+  if matches not property
 
   // Implicit operators, like the one before a literal string;
   // we use `names` here so that these names are not
   // misinterpreted as implicits in the `export` sublangauge!
-  names: #%literal #%comp #%parens #%juxtapose
+  names: #%literal #%comp #%parens #%juxtapose #%call
 
 // Example regexps
 module test:
@@ -39,27 +42,24 @@ module test:
 
 
   check:
-    import lib("racket/base.rkt").#{regexp-match?}
-    def p1 = rx'"drone"B'
+    def p1 = rx'"drone" in word'
     def words = "dronemusic"
-    #{regexp-match?}(p1, words)
+    rx_is_match(p1, words)
     ~is #true
   check:
     import lib("racket/base.rkt").#{regexp-match?}
-    def p2 = rx'"drone"b'
+    def p2 = rx'"drone" word bound'
     def words = "dronemusic"
     #{regexp-match?}(p2, words)
     ~is #false
   check:
-    import lib("racket/base.rkt").#{regexp-match?}
-    def p2 = rx'"drone"b'
+    def p2 = rx'"drone" word bound'
     def words = "drone music"
-    #{regexp-match?}(p2, words)
+    rx_is_match(p2, words)
     ~is #true
   check:
-    import lib("racket/base.rkt")
-    def p1 = rx'(mode : {insensitive, multiline} : "a")'  
-    def p2 = #{pregexp}("(?im:a)")
+    def p1 = pregexp(rx'(mode : {insensitive, multiline} : "a")') 
+    def p2 = base.#{pregexp}("(?im:a)")
     p1 == p2
     ~is #true
     
@@ -69,6 +69,7 @@ module test:
 space.enforest regexp:
   space_path my/space
   macro_definer macro
+  bridge_definer bridge
   meta_namespace regexp_meta:
     description "regexp"
     parse_syntax_class Parsed
@@ -91,10 +92,50 @@ space.enforest regexp:
       do_unpack(stx, #false).unwrap()
 
 expr.macro '«rx '$(pat :: regexp_meta.Parsed)'»':
-  'pregexp($(regexp_meta.unpack(pat)))'//TODO convert to string? let API handle pregexp etc.
+  '$(regexp_meta.unpack(pat))'//TODO convert to string? let API handle pregexp etc.
 
 regexp.macro 'any': regexp_meta.pack(".")
 regexp.macro 'newline': regexp_meta.pack("\n")
+
+
+#//
+regexp.bridge rxdef:
+  ''$(rxdef)' $name = $body'
+#//
+rxdef p = rx'"hello"'
+
+// API
+/* TODO:
+    - enforce types? just annotations?
+    - byte-(p)regexp support?
+    - convert most function generation into a macro function generator?
+    - avoid repeated imports on function calls?
+*/
+ 
+fun
+| rx_match(rx, input):
+    // TODO: keyword style inputs? for optionals?
+    def matches :: List = base.#{regexp-match}(base.#{pregexp}(rx), input)
+    for List (match: matches):
+      to_string(match)
+
+fun pregexp(rx):
+  base.#{pregexp}(rx)
+    
+fun rx_try_match(rx, input):
+  to_string(base.#{regexp-try-match}(rx, input))
+ 
+fun rx_match_positions(rx, input):
+  base.#{regexp-match-positions}(rx, input)
+
+fun rx_is_match(rx, input):
+  base.#{regexp-match?}(base.#{pregexp}(rx), input)
+
+fun rx_quote(str,
+             ~case_sensitive = #true):
+  base.#{pregexp-quote}(str, #{#:case-sensitive?}: (case_sensitive))
+  
+  
 
 #//
 def n0_255 = rx'(mode: {}: digit // posix [0-9] keyword
@@ -109,13 +150,22 @@ def ip = rx'^ n0_255 (mode: {}: "." n0_255){3} $'
 
 // `#%literal` is implicitly added before literals, like strings,
 // that do not have an operator before
+// TODO revert to old?
+// old
+#//
 regexp.macro '#%literal $(s :: String)':
   import lib("racket/base.rkt").#{regexp-quote}
   regexp_meta.pack(to_string(#{regexp-quote}(s.unwrap())))
 
+regexp.macro '#%literal $(s :: String)':
+  regexp_meta.pack((s.unwrap()))
+
 // `#%parens` is implicitly added before parentheses
 // that do not have a parsed term or operator before
 regexp.macro
+| '#%parens (if $tst ... | $(then :: regexp_meta.Parsed) | $(else :: regexp_meta.Parsed))':
+    let '$(tst :: regexp_meta.Parsed)' = '$tst ...' // TODO move then and else to similaer forms to avoid out of order parsing -> error issues
+    regexp_meta.pack("(?" ++ regexp_meta.unpack(tst) ++ regexp_meta.unpack(then) ++ "|" ++ regexp_meta.unpack(else) ++ ")")
 | '#%parens (mode : {$(mode :: Identifier), ...} : $(rgxp :: regexp_meta.Parsed))':
     //~same_as ^
     //def mutable accum = "(?"
@@ -143,32 +193,35 @@ regexp.macro
     regexp_meta.pack("(" ++ n ++ ")")
     
 | '#%parens ($(p :: regexp_meta.Parsed))':
-    regexp_meta.pack("(" ++regexp_meta.unpack(p) ++ ")")
+    regexp_meta.pack("(" ++ regexp_meta.unpack(p) ++ ")")
 
-//| '#%parens (if $tst | #%alts $thn | #%alts $els)': 
-//    regexp_meta.pack("(?" ++ regexp_meta.unpack(tst) ++ regexp_meta.pack(thn) ++ "|" ++ regexp_meta.pack(els) ++ ")")
+
 module test:
   check:
-    def p1 = rx'(matches "X"+)'
-    def p2 = #{pregexp}("(?=(X)+)") //TODO once again issues with atomic?
+    def p1 = rx'(if (matches "x"+) | "a" | "b")'
+    ~completes
+
+  check:
+    def p1 = pregexp(rx'(matches "X"+)')
+    def p2 = base.#{pregexp}("(?=(X)+)") //TODO once again issues with atomic?
     p1 == p2
     ~is #true
   
   check:
-    def p1 = rx'(not matches "X"+)'
-    def p2 = #{pregexp}("(?!(X)+)") 
+    def p1 = pregexp(rx'(not matches "X"+)')
+    def p2 = base.#{pregexp}("(?!(X)+)") 
     p1 == p2
     ~is #true
   
   check:
-    def p1 = rx'(matches prev ("y")("X"))'
-    def p2 = #{pregexp}("(?<=(y)(X))") 
+    def p1 = pregexp(rx'(matches prev ("y")("X"))')
+    def p2 = base.#{pregexp}("(?<=(y)(X))") 
     p1 == p2
     ~is #true
     
   check:
-    def p1 = rx'(not matches prev ("X"))'
-    def p2 = #{pregexp}("(?<!(X))") 
+    def p1 = pregexp(rx'(not matches prev ("X"))')
+    def p2 = base.#{pregexp}("(?<!(X))") 
     p1 == p2
     ~is #true
     
@@ -184,14 +237,14 @@ regexp.macro 'property : $(prop :: Identifier)':
 
 module test:
   check:
-    def p1 = rx'property : Ll'
-    def p2 = #{pregexp}("\\p{Ll}")
+    def p1 = pregexp(rx'property : Ll')
+    def p2 = base.#{pregexp}("\\p{Ll}")
     p1 == p2
     ~is #true
 
   check:
-    def p1 = rx'not property :Ll'
-    def p2 = #{pregexp}("\\P{Ll}")
+    def p1 = pregexp(rx'not property :Ll')
+    def p2 = base.#{pregexp}("\\P{Ll}")
     p1 == p2
     ~is #true
 
@@ -200,6 +253,8 @@ module test:
 regexp.macro '$left #%juxtapose $right':
   ~same_as: #%call
   regexp_meta.pack("" ++ regexp_meta.unpack(left) ++ regexp_meta.unpack(right))
+
+//rx'["a"-"b"]'
 
 // `#%call` is implicitly added between a parsed term
 // and parentheses; we want just the same thing
@@ -230,6 +285,23 @@ regexp.macro '$left +':
 regexp.macro '$left ?':
   ~stronger_than: #%juxtapose #%call
   regexp_meta.pack(atomic(left) ++ "?")
+
+regexp.macro '$left lazy':
+  ~stronger_than: #%juxtapose #%call
+  regexp_meta.pack(regexp_meta.unpack(left) ++ "?")
+
+
+module test:
+  check:
+    def p1 = pregexp(rx'"zyx"+lazy')
+    def p2 = base.#{pregexp}("(zyx)+?")
+    p1 == p2
+    ~is #true
+  
+  check:
+    ~eval
+    rx'"x"++'
+    ~raises "" // TODO update
 
 // `#%comp` is implicitly added between a parsed term
 // and curly braces
@@ -263,22 +335,28 @@ regexp.macro '! $right':
   ~stronger_than: #%juxtpapose #%call
   regexp_meta.pack("(?!" ++ regexp_meta.unpack(right) ++ ")")
 
-regexp.macro '$left b':
+regexp.macro '$left word bound':
   // TODO PRECEDENCE?
   ~stronger_than: #%juxtapose #%call
   ~same_as ^
   regexp_meta.pack(atomic(left) ++ "\\b")
 
-regexp.macro '$left B':
+regexp.macro '$left in word':
   ~stronger_than: #%juxtapose #%call
   ~same_as ^
   regexp_meta.pack(atomic(left) ++ "\\B")
 
-regexp.macro 'lazy $rgxp':
+regexp.macro 'only first $rgxp':
   ~stronger_than ^
   regexp_meta.pack("(?>" ++ regexp_meta.pack(rgxp) ++ ")")
 
+regexp.macro 'numrng: $(lhs :: Int) - $(rhs :: Int)':
+  when !(lhs is_a PosInt && rhs is_a PosInt) // || lhs > rhs
+  | error("you cannot take ranges of non integers")
+
 //regexp.macro  // (interior) PACK vs UNPACK?, also atomic diff btwn () and (?:)?
+
+
   
 rx'^(mode: {insensitive, multiline}: "a.b"+) ("x"+)*'
 rx' "x"+ || "y"+'

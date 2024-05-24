@@ -1,0 +1,303 @@
+#lang rhombus/static/and_meta
+
+import:
+  lib("racket/base.rkt").pregexp
+
+export:
+  ^ - && --
+
+  names: #%juxtapose #%brackets #%parens 
+  
+space.enforest c_range:
+  space_path my/space
+  macro_definer macro
+  meta_namespace c_range_meta:
+    description "character range"
+    parse_syntax_class Parsed
+    parsed_packer do_pack
+    parsed_unpacker do_unpack
+    identifier_parser: fun (id):
+                         syntax_meta.error("identifier not allowed", id)
+    export pack unpack
+    fun pack(s :: String) :: Syntax:
+      do_pack(s)
+    fun unpack(stx) :: String:
+      do_unpack(stx, #false).unwrap()
+
+#//
+macro '#%call do_comp($node)':
+  'match node
+   | rhs:
+       let (rhs, rstr) = compile(node)
+   | lhs:
+       let (lhs, lstr) = compile(node)'
+
+
+
+
+macro '$x << $(y :: Int)':
+  'to_string(Char.from_int(Char.to_int($x[0]) - $y))'
+macro '$x >> $(y :: Int)':
+  'to_string(Char.from_int(Char.to_int($x[0]) + $y))'
+
+expr.macro // TODO: refactor with values return of ast node with compiled sub components for easy work?
+| '«#%brackets [ $(pat :: c_range_meta.Parsed) ]»':
+    //'"[" ++ $(c_range_meta.do_unpack(pat)) ++ "]"'
+    fun max(x :~ String, y :~ String) :~ String:
+      if x > y
+      | x
+      | y
+
+    fun min(x :~ String, y :~ String) :~ String:
+      if x < y
+      | x
+      | y
+
+    fun range_range_intersect(s_0 :~ String, e_0 :~ String, s_1 :~ String, e_1 :~ String):
+      if s_1 > e_0 || s_0 > e_1
+      | error("cannot intersect disjoint ranges")
+      | let start =  max(s_0, s_1)
+        let end = min(e_0, e_1)
+        values('[-, $start, $end]', start +& "-" +& end)
+          
+    fun range_string_intersect(start :~ String, end :~ String, str :~ String):
+      let str = to_string(str)
+      let start = start[0]
+      let end = end[0]
+      def intersection = (for values(accum = "") (i: 0..(str.length())):
+                            if str[i] >= start && str[i] <= end
+                            | accum +& str[i]
+                            | accum)
+      if intersection == ""
+      | error("cannot intersect disjoint ranges")
+      | values('[#%literal, $intersection]', intersection)
+
+
+    fun compile(stx :: Syntax) :~ String:
+      let nstx = c_range_meta.do_unpack(stx, #false)
+      match nstx
+      | '[#%parens, $pat]':
+          compile(pat)
+      | '[$('^'), $rhs]':
+          let (rhs, rstr) = compile(rhs)
+          values(nstx ,"^" +& rstr)
+      | '[$('-'), $lhs, $rhs]':
+          let (rhs, rstr) = compile(rhs) //need a way to guarantee this ?
+          let (lhs, lstr) = compile(lhs)
+          when to_string(lstr) > to_string(rstr)
+          | error("the left side of a character range cannot be greater than right")
+          values('[-, $lstr, $rstr]', lstr +& "-" +& rstr)
+      | '[$('&&'), $lhs, $rhs]':
+          let (lhs, rstr) = compile(lhs)
+          let (rhs, rstr) = compile(rhs) // most efficient way to tc?
+          match lhs
+          | '[$('-'), $s_0, $e_0]':
+              let s_0 = s_0.unwrap() 
+              let e_0 = e_0.unwrap()
+              match rhs
+              | '[$('-'), $s_1, $e_1]':
+                  let s_1 :~ String = s_1.unwrap()
+                  let e_1 :~ String = e_1.unwrap()
+                  range_range_intersect(s_0, e_0, s_1, e_1)
+              | '[#%literal, $str]':
+                  range_string_intersect(s_0, e_0, str)
+          | '[#%literal, $str]':
+              match rhs
+              | '[$('-'), $s_0, $e_0]':
+                  let s_0 :~ String = s_0.unwrap()
+                  let e_0 :~ String = e_0.unwrap()
+                  range_string_intersect(s_0, e_0, str)
+              | ~else: error("if you can't intersect two strings by hand idk what to tell you")
+      | '[$('--'), $lhs, $rhs]':
+          let (lhs, lstr) = compile(lhs)
+          let (rhs, rstr) = compile(rhs)
+          match lhs
+          | '[$('-'), $s_0, $e_0]':
+              match rhs
+              | '[#%literal, $str]':
+                  let str :~ String = str.unwrap()
+                  let s_0 :~ String = s_0.unwrap()
+                  let e_1 :~ String = e_0.unwrap()
+                  
+                  when str < s_0 || str > e_1
+                  | error("cannot subtract from a range you are not within")
+                  let e_0 = to_string(Char.from_int(Char.to_int(str[0]) - 1)) //TODO: over/under flow?? also get << >> to work                                                                      
+                  let s_1 = to_string(Char.from_int(Char.to_int(str[0]) + 1))
+                  def rng_1 = '[-, $s_0, $e_0]'
+                  def rng_2 = '[-, $s_1, $e_1]'
+
+                  values('[#%juxtapose, $rng_1, $rng_2]', s_0 +& "-" +& e_0 +& s_1 +& "-" +& e_1) //TODO: convert second half into some sort of to_string fn for simplicity?
+              | '[$('-'), $s_1, $e_1]':
+                  let s_0 :~ String = s_0.unwrap()
+                  let e_0 :~ String = e_0.unwrap()
+                  let s_1 :~ String = s_1.unwrap()
+                  let e_1 :~ String = e_1.unwrap()
+                  cond 
+                  | (s_1 >= s_0 && s_1 <= e_0) && (e_1 >= s_0 && e_1 <= e_0): // full range overlap
+                      let e_n :~ String = e_0
+                      let e_0 :~ String = to_string(Char.from_int(Char.to_int(s_1[0]) - 1))
+                      let s_1 :~ String = to_string(Char.from_int(Char.to_int(e_1[0]) + 1))
+                      def rng_1 = '[-, $s_0, $e_0]'
+                      def rng_2 = '[-, $s_1, $e_n]'
+                      
+                      values('[#%juxtapose, $rng_1, $rng_2]', s_0 +& "-" +& e_0 +& s_1 +& "-" +& e_n)
+                  | (s_1 >= s_0 && s_1 <= e_0) && e_1 > e_0:
+                      let e_0 :~ String = to_string(Char.from_int(Char.to_int(s_1[0]) - 1))
+                      def rng = '[-, $s_0, $e_0]'
+
+                      values(rng, s_0 +& "-" +& e_0)
+                  | (e_1 >= s_0 && e_1 <= e_0) && s_1 < s_0:
+                      let s_0 :~ String = to_string(Char.from_int(Char.to_int(e_0[0]) - 1))
+                      let rng = '[-, $s_0, $e_0]'
+
+                      values(rng, s_0 +& "-" +& e_0)
+                  | ~else:
+                      values(lhs, lstr)
+          | ~else: error("cannot subtract from a non range")
+      | '[#%juxtapose, $lhs, $rhs]':
+          let (lhs, lstr) = compile(lhs)
+          let (rhs, rstr) = compile(rhs)
+          values('[#%juxtapose, $lhs, $rhs]', lstr +& rstr)
+      | '[#%literal, $str]':
+          values(nstx, str.unwrap())
+      | ~else: error("huh")
+    def (ast, str) = compile(pat)
+    '"[" ++ $str ++ "]"'
+    
+
+/*
+coming to a design issue here:
+["a"-"z"&&"b"-"k"] -> cool, totally fine
+["a"-"z"&&"bk0"-"7"] -> are we intersecting with "bkx"? "bk"? how can we make an efficient analysis? should we just force people to produce
+["a"-"z"&&"bk""0"-"7"] ???
+
+*/
+
+
+c_range.macro '#%literal $(s :: String)':
+  c_range_meta.do_pack('[#%literal, $(to_string(s.unwrap()))]') //TODO: better way to deal with racket string-copy than to_string? 
+
+c_range.macro '$left #%juxtapose $right':
+  ~same_as: #%call
+  c_range_meta.do_pack('[#%juxtapose, $left, $right]')
+
+c_range.macro '$left #%call $tail ...':
+  ~same_as: #%juxtapose
+  c_range_meta.do_pack('[#%juxtapose, $left, $tail...]')
+#//
+c_range.macro
+|'#%parens ($(p :: c_range_meta.Parsed))':
+   c_range_meta.do_pack('[#%parens, $(c_range_meta.unpack(p))]')
+#//
+c_range.macro '#%brackets [$(p :: c_range_meta.Parsed)]': //TODO and #%index
+  ~weaker_than: #%juxtapose #%call
+  c_range_meta.do_pack('[#%brackets, $(c_range_meta.unpack(p))]')
+#//
+c_range.macro '$left #%index [$(right :: c_range_meta.Parsed)]':
+  ~weaker_than: #%juxtapose #%call
+  c_range_meta.pack(c_range_meta.unpack(left) ++ "[" ++ c_range_meta.unpack(right) ++ "]")
+
+c_range.macro '$('$')$(id :: Identifier)':
+  match id
+  | 'alpha': "[:alpha:]"
+  | 'upper': "[:upper:]"
+  | 'lower': "[:lower:]"
+  | 'digit': "[:digit:]"
+  | 'hex': "[:xdigit:]"
+  | 'alnum': "[:alnum:]"
+  | 'word': "[:word:]"
+  | 'blank': "[:blank:]"
+  | 'space': "[:space:]"
+  | 'graph': "[:graph:]"
+  | 'print': "[:print:]"
+  | 'cntrl': "[:cntrl:]"
+  | 'ascii': "[:ascii:]"
+  | ~else: error("huh")
+
+c_range.macro '^ $right':
+  ~weaker_than: #%juxtapose #%call
+  c_range_meta.do_pack('[^, $right]')
+
+c_range.macro '$left - $right':
+  ~stronger_than ^ #%juxtapose #%call
+  c_range_meta.do_pack('[-, $left, $right]')
+
+c_range.macro '$left && $right':
+  ~weaker_than - //TODO ?
+  c_range_meta.do_pack('[&&, $left, $right]')
+
+c_range.macro '$left -- $right':
+  ~weaker_than -
+  c_range_meta.do_pack('[--, $left, $right]')
+  
+
+
+/*
+intersections:
+1. you can assume that any range being given is fully valid (e.g. S_n >= E_n)
+
+2. intersection is commutative 
+
+3. for some I_0 = [S_0, E_0], I_1 = [S_1, E_1] the intersection rules are as follows:
+   a) S_0 > E_1 or S_1 > E_0 -> no intersection is possible
+   b) if an intersection is possible it is of the form S_F = [Max(S_0, S_1), Min(E_0, E_1)]
+
+4. for some I = [S, E], J = String, where J_N is the char at N the intersection rules are as follows:
+    mutable accum = ""
+    for all S <= J_N <= E:
+      accum += J_N
+*/
+
+
+macro '$left eq? $right':
+  'check:
+     import lib("racket/base.rkt")
+     def p1 = #{pregexp}($left)
+     def p2 = #{pregexp}($right)
+     p1 == p2
+     ~is #true'
+
+
+module test:
+  #//
+  check:
+    ["cb"-"a"]
+    ~throws "invalid"
+  
+  ["a"-"b"] eq? "[a-b]"
+  [^"av"-"x"] eq? "[^av-x]"
+  ["a""b"] eq? "[ab]"
+  //["."] eq? "[\\.]" //TODO
+  //["."-"z"] eq? "[\\.-z]"
+  ["\2"] eq? "[\u0002]"
+  ["a"-"bc"-"d"] eq? "[a-bc-d]"
+  ["a"-"b""c"-"d"] eq? "[a-bc-d]"
+  ["a"-"z" -- "x"] eq? "[a-wy-z]"
+  ["a"-"z" -- "f"-"h"] eq? "[a-ei-z]"
+  
+  ["a"] eq? "[a]"
+  ["a"-"b"] eq? "[a-b]"
+  [^"a"] eq? "[^a]"
+  ["a""b"] eq? "[ab]"
+  ["a""x"-"y"] eq? "[ax-y]"
+  //["b"-"a"] 
+  ["a"-"z"&&"x"-"y"] eq? "[x-y]"
+  //["b"-"a" && "a"-"z"]
+  ["a"-"z" && "xyz"] eq? "[xyz]"
+  ["a"-"z"&&"b"-"k"] eq? "[b-k]"
+  #//
+  check:
+    ["a"-"c" && "d"]
+    ~throws "disjoint"
+  ["abc" && "a"-"y"] eq? "[abc]"
+  //["a" && "b"]
+
+
+  // TODO: tests for things like literal ^, [, ], - etc. vs racket implementation
+
+
+
+
+
+
+
