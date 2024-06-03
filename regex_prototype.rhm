@@ -2,7 +2,7 @@
 
 import:
   lib("racket/base.rkt") as base
-  file("character_class_lang.rhm") open
+  file("character_class_lang.rhm") only_space c_range
 
 // An example use of `space.enforest`
 
@@ -12,7 +12,7 @@ export:
 
   // Operators for use inside `rx'...'`:
   any newline
-  || * ? ^ $ lazy ! word in only 
+  || * ? + ^ $ lazy ! word in only 
   if matches not property
 
   // Implicit operators, like the one before a literal string;
@@ -98,11 +98,7 @@ regexp.macro 'any': regexp_meta.pack(".")
 regexp.macro 'newline': regexp_meta.pack("\n")
 
 
-#//
-regexp.bridge rxdef:
-  ''$(rxdef)' $name = $body'
-#//
-rxdef p = rx'"hello"'
+'[^]'
 
 // API
 /* TODO:
@@ -111,6 +107,8 @@ rxdef p = rx'"hello"'
     - convert most function generation into a macro function generator?
     - avoid repeated imports on function calls?
 */
+
+rx'"hel"{0,2}'
  
 fun
 | rx_match(rx, input):
@@ -147,6 +145,7 @@ def n0_255 = rx'(mode: {}: digit // posix [0-9] keyword
 def ip = rx'^ n0_255 (mode: {}: "." n0_255){3} $'
 
                       //TODO: for any string, run it through pregexp-quote ? but NOT identifier inserts, eg "[" -> "\\["
+
 
 // `#%literal` is implicitly added before literals, like strings,
 // that do not have an operator before
