@@ -2,9 +2,9 @@
 
 import:
   lib("racket/base.rkt") as base
-  file("character_class_lang.rhm") open
-
-// An example use of `space.enforest`
+  file("character_class_lang.rhm").c_range
+  file("character_class_lang.rhm") only_space c_range
+  file("character_class_lang.rhm").#%brackets
 
 export:
   // The main form:
@@ -12,7 +12,7 @@ export:
 
   // Operators for use inside `rx'...'`:
   any newline
-  || * ? ^ $ lazy ! word in only 
+  || * ? + ^ $ lazy ! word in only 
   if matches not property
 
   // Implicit operators, like the one before a literal string;
@@ -96,13 +96,12 @@ expr.macro '«rx '$(pat :: regexp_meta.Parsed)'»':
 
 regexp.macro 'any': regexp_meta.pack(".")
 regexp.macro 'newline': regexp_meta.pack("\n")
+#//
+regexp.macro '#%brackets [$pat]':
+  c_range.[pat]
 
 
-#//
-regexp.bridge rxdef:
-  ''$(rxdef)' $name = $body'
-#//
-rxdef p = rx'"hello"'
+'[^]'
 
 // API
 /* TODO:
@@ -111,7 +110,11 @@ rxdef p = rx'"hello"'
     - convert most function generation into a macro function generator?
     - avoid repeated imports on function calls?
 */
- 
+
+rx'"hel"{0,2}'
+
+
+
 fun
 | rx_match(rx, input):
     // TODO: keyword style inputs? for optionals?
@@ -147,6 +150,7 @@ def n0_255 = rx'(mode: {}: digit // posix [0-9] keyword
 def ip = rx'^ n0_255 (mode: {}: "." n0_255){3} $'
 
                       //TODO: for any string, run it through pregexp-quote ? but NOT identifier inserts, eg "[" -> "\\["
+
 
 // `#%literal` is implicitly added before literals, like strings,
 // that do not have an operator before
@@ -203,13 +207,13 @@ module test:
 
   check:
     def p1 = pregexp(rx'(matches "X"+)')
-    def p2 = base.#{pregexp}("(?=(X)+)") //TODO once again issues with atomic?
+    def p2 = base.#{pregexp}("(?=X+)") //TODO once again issues with atomic?
     p1 == p2
     ~is #true
   
   check:
     def p1 = pregexp(rx'(not matches "X"+)')
-    def p2 = base.#{pregexp}("(?!(X)+)") 
+    def p2 = base.#{pregexp}("(?!X+)") 
     p1 == p2
     ~is #true
   
@@ -267,7 +271,7 @@ meta:
   fun atomic(stx) :~ String:
     match regexp_meta.unpack(stx)
     | ".": "."
-    | s: "(" +& to_string(s) +& ")" // TODO: originally s: "(?:" ++ s ++ ")" better?
+    | s: to_string(s) // TODO: originally s: "(?:" ++ s ++ ")" better?
 
 regexp.macro '$left || $right':
   ~weaker_than: ~other
@@ -290,11 +294,12 @@ regexp.macro '$left lazy':
   ~stronger_than: #%juxtapose #%call
   regexp_meta.pack(regexp_meta.unpack(left) ++ "?")
 
+'$([^"a"])'
 
 module test:
   check:
-    def p1 = pregexp(rx'"zyx"+lazy')
-    def p2 = base.#{pregexp}("(zyx)+?")
+    def p1 = pregexp(rx'"zyx"+lazy') //TODO: do we def wrap in parens? or let the user decide when to use? I feel like giving the user the ability is the move
+    def p2 = base.#{pregexp}("zyx+?") // e.g. "(zxy)+?"
     p1 == p2
     ~is #true
   

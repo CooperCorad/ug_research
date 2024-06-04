@@ -1,0 +1,6 @@
+#lang rhombus
+
+import:
+  file("regex_prototype.rhm") open
+
+rx'"hel"+'

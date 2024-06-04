@@ -1,12 +1,15 @@
 #lang rhombus/static/and_meta
 
 import:
-  lib("racket/base.rkt").pregexp
+  lib("racket/base.rkt") only:
+    pregexp
 
 export:
-  ^ - && --
+  c_range
 
-  names: #%juxtapose #%brackets #%parens 
+  ^ - && -- $
+
+  names: #%juxtapose #%brackets #%parens #%literal #%call
   
 space.enforest c_range:
   space_path my/space
@@ -24,16 +27,6 @@ space.enforest c_range:
     fun unpack(stx) :: String:
       do_unpack(stx, #false).unwrap()
 
-#//
-macro '#%call do_comp($node)':
-  'match node
-   | rhs:
-       let (rhs, rstr) = compile(node)
-   | lhs:
-       let (lhs, lstr) = compile(node)'
-
-
-
 
 macro '$x << $(y :: Int)':
   'to_string(Char.from_int(Char.to_int($x[0]) - $y))'
@@ -41,7 +34,8 @@ macro '$x >> $(y :: Int)':
   'to_string(Char.from_int(Char.to_int($x[0]) + $y))'
 
 expr.macro // TODO: refactor with values return of ast node with compiled sub components for easy work?
-| '«#%brackets [ $(pat :: c_range_meta.Parsed) ]»':
+| '«  #%brackets [ $(pat :: c_range_meta.Parsed) ] »':
+    import lib("racket/base.rkt").#{pregexp-quote}
     //'"[" ++ $(c_range_meta.do_unpack(pat)) ++ "]"'
     fun max(x :~ String, y :~ String) :~ String:
       if x > y
@@ -86,7 +80,9 @@ expr.macro // TODO: refactor with values return of ast node with compiled sub co
           let (lhs, lstr) = compile(lhs)
           when to_string(lstr) > to_string(rstr)
           | error("the left side of a character range cannot be greater than right")
-          values('[-, $lstr, $rstr]', lstr +& "-" +& rstr)
+          if lstr == rstr
+          | values(rhs, rstr)
+          | values('[-, $lstr, $rstr]', lstr +& "-" +& rstr)
       | '[$('&&'), $lhs, $rhs]':
           let (lhs, rstr) = compile(lhs)
           let (rhs, rstr) = compile(rhs) // most efficient way to tc?
@@ -158,12 +154,31 @@ expr.macro // TODO: refactor with values return of ast node with compiled sub co
           let (lhs, lstr) = compile(lhs)
           let (rhs, rstr) = compile(rhs)
           values('[#%juxtapose, $lhs, $rhs]', lstr +& rstr)
+      | '[Identifier, $id]':
+          def val = (match id
+                     | 'alpha': "[:alpha:]"
+                     | 'upper': "[:upper:]"
+                     | 'lower': "[:lower:]"
+                     | 'digit': "[:digit:]"
+                     | 'hex': "[:xdigit:]"
+                     | 'alnum': "[:alnum:]"
+                     | 'word': "[:word:]"
+                     | 'blank': "[:blank:]"
+                     | 'space': "[:space:]"
+                     | 'graph': "[:graph:]"
+                     | 'print': "[:print:]"
+                     | 'cntrl': "[:cntrl:]"
+                     | 'ascii': "[:ascii:]"
+                     | ~else: error("huh"))
+          values(nstx, val)
       | '[#%literal, $str]':
-          values(nstx, str.unwrap())
+          values(nstx, #{pregexp-quote}(str.unwrap()))
       | ~else: error("huh")
+    print(pat +& "\n\n")
     def (ast, str) = compile(pat)
+    print(ast +& "\n\n")
     '"[" ++ $str ++ "]"'
-    
+//["a"-"z" -- ("f"-"h" && "g"-"x")]
 
 /*
 coming to a design issue here:
@@ -173,21 +188,25 @@ coming to a design issue here:
 
 */
 
+[("a"-"z" && "c"-"y") -- "d"-"z"]
+["a"-"z" && ("c"-"y" -- "d"-"z")]
+["c"-"d""a"-"z" && "x"-"y" ]
+
+c_range.macro '#%parens ( $(pat :: c_range_meta.Parsed) )':
+  c_range_meta.do_pack('[#%parens, $pat]')
 
 c_range.macro '#%literal $(s :: String)':
   c_range_meta.do_pack('[#%literal, $(to_string(s.unwrap()))]') //TODO: better way to deal with racket string-copy than to_string? 
 
 c_range.macro '$left #%juxtapose $right':
+  ~weaker_than && -- -
   ~same_as: #%call
   c_range_meta.do_pack('[#%juxtapose, $left, $right]')
 
 c_range.macro '$left #%call $tail ...':
   ~same_as: #%juxtapose
   c_range_meta.do_pack('[#%juxtapose, $left, $tail...]')
-#//
-c_range.macro
-|'#%parens ($(p :: c_range_meta.Parsed))':
-   c_range_meta.do_pack('[#%parens, $(c_range_meta.unpack(p))]')
+
 #//
 c_range.macro '#%brackets [$(p :: c_range_meta.Parsed)]': //TODO and #%index
   ~weaker_than: #%juxtapose #%call
@@ -198,21 +217,7 @@ c_range.macro '$left #%index [$(right :: c_range_meta.Parsed)]':
   c_range_meta.pack(c_range_meta.unpack(left) ++ "[" ++ c_range_meta.unpack(right) ++ "]")
 
 c_range.macro '$('$')$(id :: Identifier)':
-  match id
-  | 'alpha': "[:alpha:]"
-  | 'upper': "[:upper:]"
-  | 'lower': "[:lower:]"
-  | 'digit': "[:digit:]"
-  | 'hex': "[:xdigit:]"
-  | 'alnum': "[:alnum:]"
-  | 'word': "[:word:]"
-  | 'blank': "[:blank:]"
-  | 'space': "[:space:]"
-  | 'graph': "[:graph:]"
-  | 'print': "[:print:]"
-  | 'cntrl': "[:cntrl:]"
-  | 'ascii': "[:ascii:]"
-  | ~else: error("huh")
+  c_range_meta.do_pack('[Identifier, $id]')
 
 c_range.macro '^ $right':
   ~weaker_than: #%juxtapose #%call
@@ -252,12 +257,12 @@ intersections:
 macro '$left eq? $right':
   'check:
      import lib("racket/base.rkt")
-     def p1 = #{pregexp}($left)
-     def p2 = #{pregexp}($right)
+     def p1 = base.#{pregexp}($left)
+     def p2 = base.#{pregexp}($right)
      p1 == p2
      ~is #true'
 
-
+#//
 module test:
   #//
   check:
@@ -269,7 +274,7 @@ module test:
   ["a""b"] eq? "[ab]"
   //["."] eq? "[\\.]" //TODO
   //["."-"z"] eq? "[\\.-z]"
-  ["\2"] eq? "[\u0002]"
+  ["2"] eq? "[2]"
   ["a"-"bc"-"d"] eq? "[a-bc-d]"
   ["a"-"b""c"-"d"] eq? "[a-bc-d]"
   ["a"-"z" -- "x"] eq? "[a-wy-z]"
@@ -291,9 +296,12 @@ module test:
     ~throws "disjoint"
   ["abc" && "a"-"y"] eq? "[abc]"
   //["a" && "b"]
+  //[("a"-"z" && "c"-"y") -- "d"]
 
 
-  // TODO: tests for things like literal ^, [, ], - etc. vs racket implementation
+// TODO: tests for things like literal ^, [, ], - etc. vs racket implementation
+  // "[[]]" as a final result is NOT allowed BUT [\\[\\]] is, and matches as you'd want it to -> pregexp-quote 
+
 
 
 
