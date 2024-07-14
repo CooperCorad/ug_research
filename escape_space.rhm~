@@ -1,0 +1,40 @@
+#lang rhombus/static/and_meta
+
+import:
+  file ("regex_prototype.rhm") open
+
+space.enforest regexp:
+  space_path rhombus/regexp
+  macro_definer macro
+  bridge_definer bridge
+  meta_namespace regexp_meta:
+    description "regexp"
+    parse_syntax_class Parsed
+    parsed_packer do_pack
+    parsed_unpacker do_unpack
+    reflection reflect
+    // This recursive parsing is what the default checker does:
+    #//
+    parse_checker: fun (stx, who):
+                     match stx
+                     | _ when do_unpack(stx, fun (x): #false): stx
+                     | (_ :: Syntax) && '$(next :: regexp_meta.Parsed)': next
+                     | _: syntax_meta.error("bad result", stx)
+    // Improve the error for an identifier that isn't an operator
+    identifier_parser id_parse
+
+    export pack unpack reflect
+
+    fun pack(s :: String) :: Syntax:
+      do_pack(s)
+    fun unpack(stx) :: String:
+      do_unpack(stx, #false).unwrap()
+    fun id_parse(id):
+      match id
+      | 'any':
+          regexp_meta.do_pack(".")
+      | 'newline':
+          regexp_meta.do_pack("\n")
+      | ~else:
+          print("id parser")
+          syntax_meta.value(id, expr_meta.space) //scope parameter

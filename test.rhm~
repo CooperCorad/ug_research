@@ -1,0 +1,17 @@
+#lang rhombus
+
+import:
+  file("regex_prototype.rhm") open
+
+def inside_word = rx'"hello" in word'
+
+rx_split(inside_word, "hellomyfriend")
+
+def r = rx'"a" ([$digit]+) " " ([$alpha]+) any*'
+
+rx_match(r, "a123456 helloi 1223")
+
+rx_match_as_list(rx'("x"any)', "12x4x1")
+
+fun y (x, ...):
+  print([x, ...])

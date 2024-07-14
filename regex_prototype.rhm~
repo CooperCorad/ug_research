@@ -111,38 +111,29 @@ space.enforest regexp:
       do_unpack(stx, #false).unwrap()
     fun id_parse(id):
       match id
-      | 'alpha': regexp_meta.do_pack("[[:alpha:]]")
-      | 'upper': regexp_meta.do_pack("[[:upper:]]")
-      | 'lower': regexp_meta.do_pack("[[:lower:]]")
-      | 'digit': regexp_meta.do_pack("[[:digit:]]")
-      | 'hex': regexp_meta.do_pack("[[:xdigit:]]")
-      | 'alnum': regexp_meta.do_pack("[[:alnum:]]")
-      | 'word': regexp_meta.do_pack("[[:word:]]")
-      | 'blank': regexp_meta.do_pack("[[:blank:]]")
-      | 'space': regexp_meta.do_pack("[[:space:]]")
-      | 'graph': regexp_meta.do_pack("[[:graph:]]")
-      | 'print': regexp_meta.do_pack("[[:print:]]")
-      | 'cntrl': regexp_meta.do_pack("[[:cntrl:]]")
-      | 'ascii': regexp_meta.do_pack("[[:ascii:]]")
-      | 'any': regexp_meta.do_pack(".")
-      | 'newline': regexp_meta.do_pack("\n")
-      | 'space': regexp_meta.do_pack(" ")
+      | 'any':
+          regexp_meta.do_pack(".")
+      | 'newline':
+          regexp_meta.do_pack("\n")
+      | 'space':
+          regexp_meta.do_pack(" ")
       | ~else:
+          //statinfo_meta.unpack(id)
           syntax_meta.error("invalid id " +& id)
 
 expr.macro '«rx '$(pat :: regexp_meta.Parsed)'»':
   //import lib("racket/base.rkt").#{pregexp}
   //let pat = regexp_meta.unpack(pat)
   //'values($pat, $(#{pregexp}(pat)))'//TODO convert to string? let API handle pregexp etc.
-  statinfo_meta.wrap('$(regexp_meta.unpack(pat))','((bind_key, $(regexp_meta.unpack(pat))))')
+  statinfo_meta.wrap('$(regexp_meta.unpack(pat))','((z, $(regexp_meta.unpack(pat))))')
 
 regexp.macro'$left #%index [$c_rng]':
-  ~weaker_than: #%juxtapose
+  ~stronger_than #%juxtapose
   let '$(c_rng :: c_range_meta.Parsed)' = '[$c_rng]'
   regexp_meta.pack(regexp_meta.unpack(left) +& c_range_meta.do_unpack(c_rng).unwrap())
 
 regexp.macro '#%brackets [$c_rng]':
-  ~weaker_than #%juxtapose
+  ~stronger_than #%juxtapose
   let '$(c_rng :: c_range_meta.Parsed)' = '[$c_rng]'
   regexp_meta.pack((c_range_meta.do_unpack(c_rng)).unwrap())
 
@@ -179,28 +170,41 @@ module test:
   rx'[^"^"]' eq? "[^\\^]"
   rx'["abc" && "a"-"y"]' eq? "[abc]"
 
+//bind macro -> pull static info as bound info, static info key, and static lookup on escape - static info lookup
 
-statinfo.key bind_key:
+        
+  
+module test:
+  def a = rx'["0"-"9"]{0, 3}'
+  // -> def a = rx'[0-9]{0,3}'
+  // -> statinfo.macro 'a':
+  //      '(($z
+  def b = rx'$a'
+  rx' $b + '
+
+  def n0_255 = rx' ~~([digit] \
+                      || [digit][digit] \
+                      || ["01"][digit][digit] \
+                      || "2" ["0" - "4"] [digit] \
+                      || "25" ["0" - "5"])'
+  rx'$n0_255'
+  rx'$n0_255 || $n0_255'
+  //rx'$n0_255 $n0_255' <-- does not work?? precedence levels! TODO
+
+statinfo.key z:
   ~union: fun(s1, s2):
             s1 && s2
   ~intersect: fun(s1, s2):
                 s1 || s2
 
 regexp.macro
-| '$('$')$(id :: Identifier)':
-    ~weaker_than #%juxtapose
-    def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
-    unless id_value
-    | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
-    regexp_meta.pack("(?:" ++ ( id_value).unwrap() ++ ")")
-| '$left $('$')$(id :: Identifier)':
-    ~weaker_than #%juxtapose
-    def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
-    unless id_value
-    | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
-    regexp_meta.pack(regexp_meta.unpack(left) +& "(?:" ++ (id_value).unwrap() ++ ")")
 | '$left $('$')':
+    ~weaker_than: #%juxtapose #%call
+    ~same_as: ^
     regexp_meta.pack(regexp_meta.unpack(left) +& "$")
+| '$('$')$(id :: Identifier)':
+    ~same_as: ^
+    regexp_meta.pack("(?:" ++ (statinfo_meta.lookup(id, 'z') :~ Syntax).unwrap() ++ ")")
 
 // API
 /* TODO:
@@ -211,36 +215,6 @@ regexp.macro
 */
 
 //TODO -> some form of string + arr[matches], maybe simplifies to just a String as needed
-    // -> rx form is static info but the result of the match cannot be, thus classes ok?
-class rx_ret(match :: String, list :: List):
-  private implements Printable
-  implements Listable
-  private implements Indexable
-  
-  private override describe(mode, recur):
-    PrintDesc.concat(match)
-  override method to_list():
-    [match] ++ list
-  private override method get(index):
-    if index == 0
-    | match
-    | list[index - 1]
-
-module test:
-  def x :~ rx_ret = rx_match(rx'(any *)(["123"]{2})', "hello!22")
-  x
-  x[0]
-  x[1]
-  x.to_list()
-  def y :~ rx_ret = rx_match(rx'(any *)(["123"]{2})', "")
-  match x
-  | #false: "failed"
-  | ~else: x[1]
-  match y
-  | #false: "failed"
-  | ~else: y
-
-
 fun rx_match(px, input,
              ~start_pos = 0,
              ~end_pos = #false,
@@ -248,9 +222,8 @@ fun rx_match(px, input,
              ~input_prefix = #""):
   match base.#{regexp-match}(base.#{pregexp}(px), input, start_pos, end_pos, output_port, input_prefix)
   | (m :: PairList) :
-      def mList = (for List (match : m):
-                     to_string(match))
-      rx_ret(mList[0], mList.rest)
+      for List (match : m):
+                  to_string(match)
   | ~else: #false
 
 fun rx_match_as_list(px, input,
@@ -434,6 +407,8 @@ regexp.macro '$left #%juxtapose $right':
   ~same_as: #%call
   regexp_meta.pack("" ++ regexp_meta.unpack(left) ++ regexp_meta.unpack(right))
 
+//rx'["a"-"b"]'
+
 // `#%call` is implicitly added between a parsed term
 // and parentheses; we want just the same thing
 // as juxtaposition here, though
@@ -449,7 +424,7 @@ meta:
 
 regexp.macro
 | '$left || $right':
-    ~weaker_than: #%juxtapose ~other +
+    ~weaker_than: ~other
     ~stronger_than: !
     regexp_meta.pack(atomic(left) ++ "|" ++ atomic(right)) // TODO: atomic needed? likely no!
 //| '$left ||; $(right :: regexp_meta.Parsed)':
@@ -465,23 +440,21 @@ rx'| "a"
 
 regexp.macro
 | '$left * lazy':
-    ~weaker_than: #%juxtapose ~other
-    ~stronger_than: ||
+    ~stronger_than: #%juxtapose #%call
     regexp_meta.pack(atomic(left) ++ "*?")
 | '$left *':
     regexp_meta.pack(atomic(left) ++ "*")
 
 regexp.macro
 | '$left + lazy':
-    ~weaker_than: #%juxtapose ~other
-    ~stronger_than: ||
+    ~stronger_than: #%juxtapose #%call
     regexp_meta.pack(atomic(left) ++ "+?")
 | '$left +':
     regexp_meta.pack(atomic(left) ++ "+")
 
 regexp.macro
 | '$left ? lazy':
-    ~weaker_than: #%juxtapose #%call
+    ~stronger_than: #%juxtapose #%call
     regexp_meta.pack(atomic(left) ++ "??")
 | '$left ?':
     regexp_meta.pack(atomic(left) ++ "?")
@@ -520,7 +493,9 @@ regexp.macro #%comp:
 
 regexp.macro 
 | '^ $right':
-    ~weaker_than: #%juxtapose #%call $
+    ~stronger_than: *
+    ~weaker_than: #%juxtapose #%call
+    ~same_as: $
     regexp_meta.pack("^" ++ regexp_meta.unpack(right))
 
 regexp.macro '! $right':
@@ -543,5 +518,11 @@ regexp.macro 'only first $rgxp':
   regexp_meta.pack("(?>" ++ regexp_meta.pack(rgxp) ++ ")")
 
 regexp.macro 'numrng: $(lhs :: Int) - $(rhs :: Int)':
-  when !(lhs is_a PosInt && rhs is_a PosInt)
+  when !(lhs is_a PosInt && rhs is_a PosInt) // || lhs > rhs
   | error("you cannot take ranges of non integers")
+
+//regexp.macro  // (interior) PACK vs UNPACK?, also atomic diff btwn () and (?:)?
+
+
+//rx'^(mode: {insensitive, multiline}: "a.b"+) ("x"+)*'
+//rx' "x"+ || "y"+'

@@ -1,0 +1,49 @@
+#lang rhombus/static/and_meta
+
+import:
+  file ("regex_prototype.rhm").regexp
+  file ("regex_prototype.rhm").regexp_meta
+  file ("regex_prototype.rhm") open
+
+space.enforest rx_esc:
+  space_path rhombus/rx_esc
+  macro_definer macro
+  bridge_definer bridge
+  meta_namespace rx_esc:
+    description "regexp"
+    parse_syntax_class Parsed
+    parsed_packer do_pack
+    parsed_unpacker do_unpack
+    reflection reflect
+    // This recursive parsing is what the default checker does:
+    #//
+    parse_checker: fun (stx, who):
+                     match stx
+                     | _ when do_unpack(stx, fun (x): #false): stx
+                     | (_ :: Syntax) && '$(next :: regexp_meta.Parsed)': next
+                     | _: syntax_meta.error("bad result", stx)
+    // Improve the error for an identifier that isn't an operator
+    identifier_parser id_parse
+
+    export pack unpack reflect
+
+    fun pack(s :: String) :: Syntax:
+      do_pack(s)
+    fun unpack(stx) :: String:
+      do_unpack(stx, #false).unwrap()
+    fun id_parse(id):
+      syntax_meta.value(id, expr_meta.space) //scope parameter
+
+expr.macro '«rx '$(pat :: regexp_meta.Parsed)'»':
+  //import lib("racket/base.rkt").#{pregexp}
+  //let pat = regexp_meta.unpack(pat)
+  //'values($pat, $(#{pregexp}(pat)))'//TODO convert to string? let API handle pregexp etc.
+  //print(pat)
+  //print(regexp_meta.do_unpack(pat) is_a Syntax)
+  //'$(regexp_meta.unpack(pat))'
+  '$(regexp_meta.unpack(pat))'
+
+module test:
+  def x = rx'"hello"{0, 300}'
+  x is_a String
+  //rx '$x'

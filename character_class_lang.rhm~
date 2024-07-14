@@ -1,8 +1,8 @@
 #lang rhombus/static/and_meta
 
 import:
-  lib("racket/base.rkt") as base
-
+  lib("racket/base.rkt") only:
+    pregexp
 
 export:
   c_range
@@ -22,7 +22,7 @@ space.enforest c_range:
     parsed_packer do_pack
     parsed_unpacker do_unpack
     identifier_parser: fun (id):
-                         c_range_meta.do_pack('[Identifier, $id]')
+                         syntax_meta.error("c_rng: identifier not allowed", id)
     export pack unpack
     fun pack(s :: String) :: Syntax:
       do_pack(s)
@@ -79,7 +79,10 @@ c_range.macro '#%brackets [$(p :: c_range_meta.Parsed)]': //TODO and #%index
 #//
 c_range.macro '$left #%index [$(right :: c_range_meta.Parsed)]':
   ~weaker_than: #%juxtapose #%call
-  c_range_meta.pack(c_range_meta.unpack(left) ++ "[" ++ c_range_meta.unpack(right) ++ "]")  
+  c_range_meta.pack(c_range_meta.unpack(left) ++ "[" ++ c_range_meta.unpack(right) ++ "]")
+
+c_range.macro '$('$')$(id :: Identifier)':
+  c_range_meta.do_pack('[Identifier, $id]')
 
 c_range.macro '^ $right':
   ~weaker_than: #%juxtapose #%call
@@ -99,10 +102,7 @@ c_range.macro '$left -- $right':
   
 c_range.macro
 | '« #%brackets [ $(pat :: c_range_meta.Parsed) ] »':
-    import:
-      lib("racket/base.rkt").#{pregexp-quote}
-      lib("racket/base.rkt").#{pregexp}
-      lib("racket/base.rkt").#{regexp-match}
+    import lib("racket/base.rkt").#{pregexp-quote}
     //print("hello")
     //'"[" ++ $(c_range_meta.do_unpack(pat)) ++ "]"'
     fun max(x :~ String, y :~ String) :~ String:
@@ -143,11 +143,6 @@ c_range.macro
       | '[$('^'), $rhs]':
           unless is_negated
           | error("negation of a character range must come directly after the left bracket: [")
-      | '[#%literal, $str]':
-          def sStr :~ String = to_string(str.unwrap())
-          if #{regexp-match}(("^0x[0-9]+$"), sStr)
-          | values(nstx,to_string(Char.from_int(String.to_int("#" +& sStr.substring(1)))))
-          | values(nstx, #{pregexp-quote}(str.unwrap()))
       | '[$('-'), $lhs, $rhs]':
           let (rhs, rstr) = compile(rhs) //need a way to guarantee this ?
           let (lhs, lstr) = compile(lhs)
@@ -244,6 +239,8 @@ c_range.macro
                      | 'ascii': "[:ascii:]"
                      | ~else: error("huh"))
           values(nstx, val)
+      | '[#%literal, $str]':
+          values(nstx, #{pregexp-quote}(str.unwrap()))
       | ~else: error("Nested character ranges are illegal, if you wish to capture the characters \"[\" or \"]\" simply put them in quotes")
     //print(pat +& "\n\n")
     def mutable is_negated = #false
