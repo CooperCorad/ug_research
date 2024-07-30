@@ -13,12 +13,14 @@ export:
   // The main form:
   rx
   regexp
-  meta: regexp_meta
+  c_range
+  rx_ret
+  meta: regexp_meta combine atomic append prepend wrap c_range_meta
 
   // Operators for use inside `rx'...'`:
   //any newline
   || * ? + ^ $ ! word in only 
-  if matches not property ~~
+  if matches ~~
   - -- && ^
 
   // Implicit operators, like the one before a literal string;
@@ -29,56 +31,11 @@ export:
 
   // API functions
   rx_match rx_match_as_list rx_try_match
-  pregexp rx_quote
+  rx_quote
   rx_match_positions rx_match_positions_as_list
   rx_is_match rx_is_exact_match
   rx_max_lookbehind
   rx_split rx_replace rx_replace_all
-  
-
-// Example regexps
-#//
-module test:
-  check:
-    rx'^ ("Hello" || "Hi") " "? ("Here"||"There") $'
-    ~completes
-  check:
-    rx'(^ "Hello" || "Hi"{1, 22} || "At("any*")") $'
-    ~completes
-  #// Come back?
-  #//
-  check:
-    rx'  (! any)+'
-    ~completes
-  check:
-    import lib("racket/base.rkt").#{regexp-match?}
-    def p = rx'"apple" || "banana"'
-    #{regexp-match?}(p, "apple") && #{regexp-match?}(p, "banana")
-    ~is #true
-
-
-
-  check:
-    def p1 = rx'"drone" in word'
-    def words = "dronemusic"
-    rx_is_match(p1, words)
-    ~is #true
-  check:
-    import lib("racket/base.rkt").#{regexp-match?}
-    def p2 = rx'"drone" word bound'
-    def words = "dronemusic"
-    #{regexp-match?}(p2, words)
-    ~is #false
-  check:
-    def p2 = rx'"drone" word bound'
-    def words = "drone music"
-    rx_is_match(p2, words)
-    ~is #true
-  check:
-    def p1 = pregexp(rx'(mode : {insensitive, multiline} : "a")') 
-    def p2 = base.#{pregexp}("(?im:a)")
-    p1 == p2
-    ~is #true
     
 
 // Instantiate enforestation and macro machinery for the
@@ -110,50 +67,276 @@ space.enforest regexp:
     fun unpack(stx) :: String:
       do_unpack(stx, #false).unwrap()
     fun id_parse(id):
+      print(id)
       match id
-      | 'alpha': regexp_meta.do_pack("[[:alpha:]]")
-      | 'upper': regexp_meta.do_pack("[[:upper:]]")
-      | 'lower': regexp_meta.do_pack("[[:lower:]]")
-      | 'digit': regexp_meta.do_pack("[[:digit:]]")
-      | 'hex': regexp_meta.do_pack("[[:xdigit:]]")
-      | 'alnum': regexp_meta.do_pack("[[:alnum:]]")
-      | 'word': regexp_meta.do_pack("[[:word:]]")
-      | 'blank': regexp_meta.do_pack("[[:blank:]]")
-      | 'space': regexp_meta.do_pack("[[:space:]]")
-      | 'graph': regexp_meta.do_pack("[[:graph:]]")
-      | 'print': regexp_meta.do_pack("[[:print:]]")
-      | 'cntrl': regexp_meta.do_pack("[[:cntrl:]]")
-      | 'ascii': regexp_meta.do_pack("[[:ascii:]]")
-      | 'any': regexp_meta.do_pack(".")
-      | 'newline': regexp_meta.do_pack("\n")
-      | 'space': regexp_meta.do_pack(" ")
+      | 'alpha': atomic("[[:alpha:]]")
+      | 'upper': atomic("[[:upper:]]")
+      | 'lower': atomic("[[:lower:]]")
+      | 'digit': atomic("[[:digit:]]")
+      | 'hex': atomic("[[:xdigit:]]")
+      | 'alnum': atomic("[[:alnum:]]")
+      | 'word': atomic("[[:word:]]")
+      | 'blank': atomic("[[:blank:]]")
+      | 'space': atomic("[[:space:]]")
+      | 'graph': atomic("[[:graph:]]")
+      | 'print': atomic("[[:print:]]")
+      | 'cntrl': atomic("[[:cntrl:]]")
+      | 'ascii': atomic("[[:ascii:]]")
+      | 'any': atomic(".")
+      | 'newline': atomic("\n")
+      | 'space': atomic(" ")
       | ~else:
           syntax_meta.error("invalid id " +& id)
 
 expr.macro '«rx '$(pat :: regexp_meta.Parsed)'»':
-  //import lib("racket/base.rkt").#{pregexp}
+  import lib("racket/base.rkt").#{pregexp}
   //let pat = regexp_meta.unpack(pat)
-  //'values($pat, $(#{pregexp}(pat)))'//TODO convert to string? let API handle pregexp etc.
-  statinfo_meta.wrap('$(regexp_meta.unpack(pat))','((bind_key, $(regexp_meta.unpack(pat))))')
+  match regexp_meta.do_unpack(pat)
+  | '[$rx_string, [$id_list, ...]]':
+      #{pregexp}(rx_string.unwrap())
+      let vs = '[$(rx_string.unwrap()), [$id_list, ...]]'
+      statinfo_meta.wrap('$vs','((bind_key, $vs))')
+  | '[$rx_string, #false]':
+      #{pregexp}(rx_string.unwrap())
+      let vs = '[$(rx_string.unwrap()), #false]'
+      statinfo_meta.wrap('$vs','((bind_key, $vs))')
+
+// Implicit forms
 
 regexp.macro'$left #%index [$c_rng]':
   ~weaker_than: #%juxtapose
   let '$(c_rng :: c_range_meta.Parsed)' = '[$c_rng]'
-  regexp_meta.pack(regexp_meta.unpack(left) +& c_range_meta.do_unpack(c_rng).unwrap())
+  combine(left, atomic(c_range_meta.do_unpack(c_rng).unwrap()))
 
 regexp.macro '#%brackets [$c_rng]':
   ~weaker_than #%juxtapose
   let '$(c_rng :: c_range_meta.Parsed)' = '[$c_rng]'
-  regexp_meta.pack((c_range_meta.do_unpack(c_rng)).unwrap())
+  atomic((c_range_meta.do_unpack(c_rng)).unwrap_all())
+
+
+// `#%parens` is implicitly added before parentheses
+// that do not have a parsed term or operator before
+regexp.macro
+| '#%parens (mode : {$(mode :: Identifier), ...} : $(rgxp :: regexp_meta.Parsed))':
+    //~same_as ^
+    def modes = (for values(accum = "(?") (m: [mode, ...]):
+                   match m
+                   | 'sensitive': accum +& "-i"
+                   | 'insensitive': accum +& "i"
+                   | 'multiline': accum +& "m"
+                   | 'monoline': accum +& "-m"
+                   | ~else: syntax_meta.error("mode: " +& m +& " not recognized"))
+    //regexp_meta.pack(modes +& ":" ++ regexp_meta.unpack(rgxp) ++ ")")
+    wrap(rgxp, modes +& ":", ")")
+| '#%parens ($(name :: Identifier): $(cap_group :: regexp_meta.Parsed))': //TODO: check that order of nested c_gs is correct ? [name] ++ list_from_parsed?
+    match regexp_meta.do_unpack(cap_group)
+    | '[$cg_str, [$cg_id_list, ...]]':
+        regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#'$name, $cg_id_list, ...]]')
+    | '[$cg_str, #false]':
+        regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#'$name]]')
+| '#%parens (if $tst ... | $(then :: regexp_meta.Parsed) | $(else :: regexp_meta.Parsed))':
+    let '$(tst :: regexp_meta.Parsed)' = '$tst ...' // TODO move then and else to similaer forms to avoid out of order parsing -> error issues
+    //regexp_meta.pack("(?" ++ regexp_meta.unpack(tst) ++ regexp_meta.unpack(then) ++ "|" ++ regexp_meta.unpack(else) ++ ")")
+    wrap(append(combine(tst, then, ""), "|"), "(?", ")")
+| '#%parens (matches prev $(tst :: regexp_meta.Parsed))':
+    //regexp_meta.pack("(?<=" ++ regexp_meta.unpack(tst) ++ ")")
+    wrap(tst, "(?<=", ")")
+| '#%parens (not matches prev $(tst :: regexp_meta.Parsed))':
+    //regexp_meta.pack("(?<!" ++ regexp_meta.unpack(tst) ++ ")")
+    wrap(tst, "(?<!", ")")
+| '#%parens (matches $(tst :: regexp_meta.Parsed))':
+    //regexp_meta.pack("(?=" ++ regexp_meta.unpack(tst) ++ ")")
+    wrap(tst, "(?=", ")")
+| '#%parens (not matches $(tst :: regexp_meta.Parsed))':
+    //regexp_meta.pack("(?!" ++ regexp_meta.unpack(tst) ++")")
+    wrap(tst, "(?!", ")")
+| '#%parens ($(n :: Int))':
+    unless n.unwrap() is_a PosInt  //TODO: does racket allow \0 backref or does it start at \1?
+    | syntax_meta.error("You cannot check a match on capture group number <= 0")
+    //regexp_meta.pack("(" ++ n ++ ")")
+    wrap(atomic(n.unwrap()), "(", ")")
+| '#%parens ($(p :: regexp_meta.Parsed))': //TODO: move to non-cg
+    //regexp_meta.pack("(?:" ++ regexp_meta.unpack(p) ++ ")")
+    wrap(p, "(?:", ")")
+
+// '#%literal' is implicitly added before atomic structures (strings here)
+regexp.macro '#%literal $(s :: String)':
+  import lib("racket/base.rkt").#{regexp-quote}
+  atomic(#{regexp-quote}(s.unwrap()))
+
+// `#%juxtapose` is implicitly added after something that's
+// parsed and before a non-operator
+regexp.macro '$left #%juxtapose $right':
+  ~same_as: #%call
+  combine(left, right)
+  
+// `#%call` is implicitly added between a parsed term
+// and parentheses; we want just the same thing
+// as juxtaposition here, though
+regexp.macro '$left #%call $tail ...':
+  ~same_as: #%juxtapose
+  values('$left', '#%juxtapose $tail ...')
+
+// Unnamed capture group
+regexp.macro '~~( $(p :: regexp_meta.Parsed) )': // ~uncaptured
+  //regexp_meta.pack("(?:" ++ regexp_meta.unpack(p) ++ ")")
+  match regexp_meta.do_unpack(p)
+  | '[$cg_str, [$cg_id_list, ...]]':
+      regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#false, $cg_id_list, ...]]')
+  | '[$cg_str, #false]':
+      regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#false]]')
+
+
+// Operators
+regexp.macro
+| '$left || $right':
+    ~weaker_than: #%juxtapose ~other +
+    ~stronger_than: !
+    //regexp_meta.pack(atomic(left) ++ "|" ++ atomic(right)) // TODO: atomic needed? likely no!
+    combine(left, right, "||")
+
+regexp.macro
+| '$left * lazy': //TODO: optional lazy rather than double macro
+    ~weaker_than: #%juxtapose ~other
+    ~stronger_than: ||
+    append(left, "*?")
+| '$left *':
+    append(left, "*")
+
+regexp.macro
+| '$left + lazy':
+    ~weaker_than: #%juxtapose ~other
+    ~stronger_than: ||
+    append(left, "+?")
+| '$left +':
+    append(left, "+")
+
+regexp.macro
+| '$left ? lazy':
+    ~weaker_than: #%juxtapose #%call
+    append(left, "??")
+| '$left ?':
+    append(left, "?")
+
+regexp.macro #%comp:
+  ~stronger_than: #%juxtapose #%call
+| '$left #%comp {$(min :: Int), _}':
+    append(left, "{" +& min.unwrap() ++ ",}")
+| '$left #%comp {$(min :: Int), $(max :: Int)}':
+    append(left, "{" +& min.unwrap() ++ "," +& max.unwrap() ++ "}")
+| '$left #%comp {$(count :: Int)}':
+    append(left, "{" +& count.unwrap() ++ "}")
+
+regexp.macro 
+| '^ $right':
+    ~weaker_than: #%juxtapose #%call $ #%index
+    prepend(right, "^")
+    
+regexp.macro '$left word bound':
+  ~stronger_than: #%juxtapose #%call
+  ~same_as ^
+  append(left, "\\b")
+
+regexp.macro '$left in word':
+  ~stronger_than: #%juxtapose #%call
+  ~same_as ^
+  append(left, "\\B")
+
+regexp.macro 'only first $rgxp':
+  ~stronger_than ^
+  let '$(rgxp :: regexp_meta.Parsed)' = rgxp
+  wrap(rgxp, "(?>", ")")
+
+// Meta functions
+
+meta:
+  fun atomic(stx) :~ String:
+    regexp_meta.do_pack('[$(to_string(stx)), #false]') // TODO: originally s: "(?:" ++ s ++ ")" better?
+
+  fun
+  | combine(left, right, insert):
+      let '$(left :: regexp_meta.Parsed)' = left
+      let '$(right :: regexp_meta.Parsed)' = right
+      match left
+      | '[$l_str, [$l_ids, ...]]':
+          match right
+          | '[$r_str, [$r_ids, ...]]': //both have id lists
+              regexp_meta.do_pack('[$(l_str.unwrap() +& insert +& r_str.unwrap()), [$l_ids, ..., $r_ids, ...]]')
+          | '[$r_str, #false]':
+              regexp_meta.do_pack('[$(l_str.unwrap() +& insert +& r_str.unwrap()), [$l_ids, ...]]')
+      | '[$l_str, #false]':
+          match right
+          | '[$r_str, [$r_ids, ...]]':
+              regexp_meta.do_pack('[$(l_str.unwrap() +& insert +& r_str.unwrap()), [$r_ids, ...]]')
+          | '[$r_str, #false]':
+              regexp_meta.do_pack('[$(l_str.unwrap() +& insert +& r_str.unwrap()), #false]')
+  | combine(left, right):
+      let '$(left :: regexp_meta.Parsed)' = left
+      let '$(right :: regexp_meta.Parsed)' = right
+      match left
+      | '[$l_str, [$l_ids, ...]]':
+          match right
+          | '[$r_str, [$r_ids, ...]]': //both have id lists
+              regexp_meta.do_pack('[$(l_str.unwrap() +& r_str.unwrap()), [$l_ids, ..., $r_ids, ...]]')
+          | '[$r_str, #false]':
+              regexp_meta.do_pack('[$(l_str.unwrap() +& r_str.unwrap()), [$l_ids, ...]]')
+      | '[$l_str, #false]':
+          match right
+          | '[$r_str, [$r_ids, ...]]':
+              regexp_meta.do_pack('[$(l_str.unwrap() +& r_str.unwrap()), [$r_ids, ...]]')
+          | '[$r_str, #false]':
+              regexp_meta.do_pack('[$(l_str.unwrap() +& r_str.unwrap()), #false]')
+
+  fun append(left, app):
+    let '$(left :: regexp_meta.Parsed)' = left
+    match left
+    | '[$l_str, [$l_ids, ...]]':
+        regexp_meta.do_pack('[$(l_str.unwrap() +& app), [$l_ids, ...]]')
+    | '[$l_str, #false]':
+        regexp_meta.do_pack('[$(l_str.unwrap() +& app), #false]')
+        
+  fun prepend(right, prep):
+     let '$(right :: regexp_meta.Parsed)' = right
+     match right
+     | '[$r_str, [$r_ids, ...]]':
+         regexp_meta.do_pack('[$(prep +& r_str.unwrap()), [$r_ids, ...]]')
+     | '[$r_str, #false]':
+         regexp_meta.do_pack('[$(prep +& r_str.unwrap()), #false]')
+
+  fun wrap(in, l, r):
+    let '$(in :: regexp_meta.Parsed)' = in
+    match in
+    | '[$in_str, [$in_ids, ...]]':
+        regexp_meta.do_pack('[$(l +& in_str.unwrap() +& r), [$in_ids, ...]]')
+    | '[$in_str, #false]':
+        regexp_meta.do_pack('[$(l +& in_str.unwrap() +& r), #false]')
+
+// Escape operators + end of line operator
+regexp.macro
+| '$('$')$(id :: Identifier)':
+    ~weaker_than #%juxtapose
+    def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
+    unless id_value
+    | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
+    wrap(regexp_meta.do_pack(id_value), "(?:", ")")
+| '$left $('$')$(id :: Identifier)':
+    ~weaker_than #%juxtapose
+    def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
+    unless id_value
+    | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
+    combine(regexp_meta.unpack(left), wrap(id_value.unwrap(), "(?:", ")"))
+| '$left $('$')':
+    append(left, "$")
+    
 
 macro '$left eq? $right':
   'check:
      import lib("racket/base.rkt")
      def p1 = base.#{pregexp}($left)
-     def p2 = base.#{pregexp}($right)
+     def p2 = [base.#{pregexp}($right), #false]
      p1 == p2
      ~is #true'
-
+#//
 module test:
   rx'["a"-"b"]' eq? "[a-b]"
   rx'[^"av"-"x"]' eq? "[^av-x]"
@@ -185,23 +368,58 @@ statinfo.key bind_key:
             s1 && s2
   ~intersect: fun(s1, s2):
                 s1 || s2
+/*
+bind.macro 'rx $id $rx_exp...':
+  bind_meta.pack('(rx_infoer,
+                   ($id, $rx_exp...))')
 
-regexp.macro
-| '$('$')$(id :: Identifier)':
-    ~weaker_than #%juxtapose
-    def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
-    unless id_value
-    | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
-    regexp_meta.pack("(?:" ++ ( id_value).unwrap() ++ ")")
-| '$left $('$')$(id :: Identifier)':
-    ~weaker_than #%juxtapose
-    def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
-    unless id_value
-    | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
-    regexp_meta.pack(regexp_meta.unpack(left) +& "(?:" ++ (id_value).unwrap() ++ ")")
-| '$left $('$')':
-    regexp_meta.pack(regexp_meta.unpack(left) +& "$")
+bind.infoer 'rx_infoer($static_info, ($id, $rx_exp))':
+  let '$(id :: Identifier)' = id
+  print(id)
+  match rx_exp
+  | '«rx '$(pat :: regexp_meta.Parsed)'»':
+      print("pat: " +& regexp_meta.do_unpack(pat))
+      def info = (match regexp_meta.do_unpack(pat)
+                  | '[$_, [$ids, ...]]':
+                      [bind_meta.get_info(ids, static_info), ...] //[bind_meta.get_info(id, static_info)] ++
+                  | '[$_, #false]':
+                      [bind_meta.get_info(id, static_info)])
+      print(info)
+  | ~else:
+      throw("matching on forms of rx'...' not " +& rx_exp)
+      
+  //print("X: " +& regexp_meta.do_unpack(rx_exp) +& "\n\n")
+  '("matching(rx'...' = (rhs :: String))",
+    $id,
+    (), //TODO stat inf needed?
+    (($id, [()], ())),
+    rx_matcher,
+    rx_committer,
+    rx_binder,
+    ($id, $rx_exp))' //needs to include all info for id names generated by the rx'...' form, thus need to evaluate rx'...' at this point
 
+bind.matcher 'rx_matcher($rhs, $id, $IF, $success, $failure)':
+  '$IF $rhs is_a String
+   | $success
+   | $failure'
+
+bind.binder 'rx_committer($arg, $id)':
+
+  ''
+
+bind.binder 'rx_binder($arg, $id)':
+  //import:
+    //file("regex_prototype.rhm") open
+  print("here")
+  match id
+  | '($total_id, $rx_exp)':
+      //let rx_exp = regexp_meta.do_unpack(rx_exp)
+      //print(rx_exp)
+      'def $total_id: $rx_exp' //Avoid execution of rx'...' here, we want to confirm it way ahead of this
+  //'let x = 1'
+  //'def $id: $arg'
+  
+*/
 // API
 /* TODO:
     - enforce types? just annotations?
@@ -210,15 +428,13 @@ regexp.macro
     - avoid repeated imports on function calls?
 */
 
-//TODO -> some form of string + arr[matches], maybe simplifies to just a String as needed
-    // -> rx form is static info but the result of the match cannot be, thus classes ok?
-class rx_ret(match :: String, list :: List):
+class rx_ret(match, list :: List):
   private implements Printable
   implements Listable
   private implements Indexable
   
-  private override describe(mode, recur):
-    PrintDesc.concat(match)
+  private override describe(mode, recur) :: String:
+    to_string(match, ~mode: #'expr)
   override method to_list():
     [match] ++ list
   private override method get(index):
@@ -226,30 +442,30 @@ class rx_ret(match :: String, list :: List):
     | match
     | list[index - 1]
 
-module test:
-  def x :~ rx_ret = rx_match(rx'(any *)(["123"]{2})', "hello!22")
-  x
-  x[0]
-  x[1]
-  x.to_list()
-  def y :~ rx_ret = rx_match(rx'(any *)(["123"]{2})', "")
-  match x
-  | #false: "failed"
-  | ~else: x[1]
-  match y
-  | #false: "failed"
-  | ~else: y
 
+// extracts string from px
+fun rx_get(px):
+  match px
+  | [(rx_string :: String), [id_list, ...]]:
+      rx_string
+  | [(rx_string :: String), #false]:
+      rx_string
+  | thing:
+      throw("rx functions do not accept " +& px)
 
+  
 fun rx_match(px, input,
              ~start_pos = 0,
              ~end_pos = #false,
              ~output_port = #false,
              ~input_prefix = #""):
-  match base.#{regexp-match}(base.#{pregexp}(px), input, start_pos, end_pos, output_port, input_prefix)
+  
+  match base.#{regexp-match}(base.#{pregexp}(rx_get(px)), input, start_pos, end_pos, output_port, input_prefix)
   | (m :: PairList) :
       def mList = (for List (match : m):
+                     
                      to_string(match))
+      
       rx_ret(mList[0], mList.rest)
   | ~else: #false
 
@@ -257,19 +473,16 @@ fun rx_match_as_list(px, input,
                      ~start_pos = 0,
                      ~end_pos = #false,
                      ~input_prefix = #""):
-  def matches :~ PairList = base.#{regexp-match*}(base.#{pregexp}(px), input, start_pos, end_pos, input_prefix)
+  def matches :~ PairList = base.#{regexp-match*}(base.#{pregexp}(rx_get(px)), input, start_pos, end_pos, input_prefix)
   for List (m : matches):
     to_string(m)
-
-fun pregexp(px):
-  base.#{pregexp}(px)
     
 fun rx_try_match(px, input,
                  ~start_pos = 0,
                  ~end_pos = #false,
                  ~output_port = #false,
                  ~input_prefix = #""):
-  match base.#{regexp-try-match}(px, input, start_pos, end_pos, output_port, input_prefix)
+  match base.#{regexp-try-match}(base.#{pregexp}(rx_get(px)), input, start_pos, end_pos, output_port, input_prefix)
   | (m :: PairList): to_string(m[0])
   | ~else: #false
 
@@ -279,101 +492,56 @@ fun rx_match_positions(px, input,
                        ~end_pos = #false,
                        ~output_port = #false,
                        ~input_prefix = #""):
-  base.#{regexp-match-positions}(px, input, start_pos, end_pos, output_port, input_prefix)
+  base.#{regexp-match-positions}(base.#{pregexp}(rx_get(px)), input, start_pos, end_pos, output_port, input_prefix)
 
 fun rx_match_positions_as_list(px, input,
                                ~start_pos = 0,
                                ~end_pos = #false,
                                ~input_prefix = #""):
-  base.#{regexp-match-positions*}(px, input, start_pos, end_pos, input_prefix)
+  base.#{regexp-match-positions*}(base.#{pregexp}(rx_get(px)), input, start_pos, end_pos, input_prefix)
 
 
 fun rx_is_match(px, input):
-  base.#{regexp-match?}(base.#{pregexp}(px), input)
+  base.#{regexp-match?}(base.#{pregexp}(rx_get(px)), input)
 
 fun rx_is_exact_match(px, input):
-  base.#{regexp-match-exact?}(px, input)
+  base.#{regexp-match-exact?}(base.#{pregexp}(rx_get(px)), input)
 
 fun rx_quote(str,
              ~case_sensitive = #true):
   to_string(base.#{pregexp-quote}(str, (case_sensitive)))
 
 fun rx_max_lookbehind(px):
-  base.#{regexp-max-lookbehind}(px)
+  base.#{regexp-max-lookbehind}(base.#{pregexp}(rx_get(px)))
 
 fun rx_split(px, input,
              ~start_pos = 0,
              ~end_pos = #false,
              ~input_prefix = #""):
-  def matches :~ PairList = base.#{regexp-split}(base.#{pregexp}(px), input, start_pos, end_pos, input_prefix)
+  def matches :~ PairList = base.#{regexp-split}(base.#{pregexp}(rx_get(px)), input, start_pos, end_pos, input_prefix)
   for List (m : matches):
     to_string(m)
 
 fun rx_replace(px, input, insert,
                ~input_prefix = #""):
-  to_string(base.#{regexp-replace}(px, input, insert, input_prefix))
+  //let px = rx_get(px)
+  to_string(base.#{regexp-replace}(base.#{pregexp}(rx_get(px)), input, insert, input_prefix))
 
 fun rx_replace_all(px, input, insert,
                    ~start_pos = 0,
                    ~end_pos = #false,
                    ~input_prefix = #""):
-  to_string(base.#{regexp-replace*}(base.#{pregexp}(px), input, insert, start_pos, end_pos, input_prefix))
+  to_string(base.#{regexp-replace*}(base.#{pregexp}(rx_get(px)), input, insert, start_pos, end_pos, input_prefix))
 
 
+//module terr:
+ // rx'"a""b"'
+  //rx'"b" (a: "a")' // unbound id?
+  //rx'(a: "a" (b: "b"))'
+  //rx'(a: "a" (d: "d") (b: "b" (c: "c")))'
+  //rx'(a: "a") || (b: "b")'
+  //rx'(a: "a") (b: "b")'
 
-// `#%literal` is implicitly added before literals, like strings,
-// that do not have an operator before
-// TODO revert to old?
-// old
-
-regexp.macro '#%literal $(s :: String)':
-  import lib("racket/base.rkt").#{regexp-quote}
-  regexp_meta.pack(to_string(#{regexp-quote}(s.unwrap())))
-#//
-regexp.macro '#%literal $(s :: String)':
-  regexp_meta.pack(base.#{pregexp-quote}(s.unwrap()))
-
-// `#%parens` is implicitly added before parentheses
-// that do not have a parsed term or operator before
-regexp.macro
-| '#%parens (if $tst ... | $(then :: regexp_meta.Parsed) | $(else :: regexp_meta.Parsed))':
-    let '$(tst :: regexp_meta.Parsed)' = '$tst ...' // TODO move then and else to similaer forms to avoid out of order parsing -> error issues
-    regexp_meta.pack("(?" ++ regexp_meta.unpack(tst) ++ regexp_meta.unpack(then) ++ "|" ++ regexp_meta.unpack(else) ++ ")")
-| '#%parens (mode : {$(mode :: Identifier), ...} : $(rgxp :: regexp_meta.Parsed))':
-    //~same_as ^
-    //def mutable accum = "(?"
-    def modes = (for values(accum = "(?") (m: [mode, ...]):
-                   match m
-                   | 'sensitive': accum +& "-i"
-                   | 'insensitive': accum +& "i"
-                   | 'multiline': accum +& "m"
-                   | 'monolne': accum +& "-m"
-                   | ~else: syntax_meta.error("mode: " ++ m ++ " not recognized"))
-    regexp_meta.pack(modes +& ":" ++ regexp_meta.unpack(rgxp) ++ ")")
-    
-| '#%parens (matches prev $(tst :: regexp_meta.Parsed))':
-    regexp_meta.pack("(?<=" ++ regexp_meta.unpack(tst) ++ ")")
-| '#%parens (not matches prev $(tst :: regexp_meta.Parsed))':
-    regexp_meta.pack("(?<!" ++ regexp_meta.unpack(tst) ++ ")")
-| '#%parens (matches $(tst :: regexp_meta.Parsed))':
-    regexp_meta.pack("(?=" ++ regexp_meta.unpack(tst) ++ ")")
-| '#%parens (not matches $(tst :: regexp_meta.Parsed))':
-    regexp_meta.pack("(?!" ++ regexp_meta.unpack(tst) ++")")
-    
-| '#%parens ($(n :: Int))':
-    unless n is_a PosInt  //TODO: does racket allow \0 backref or does it start at \1?
-    | syntax_meta.error("You cannot check a match on capture group number <= 0")
-    regexp_meta.pack("(" ++ n ++ ")")
-| '#%parens ($(p :: regexp_meta.Parsed))':
-    regexp_meta.pack("(" ++ regexp_meta.unpack(p) ++ ")")
-
-//TODO: rework syntax, looks ugly
-regexp.macro '~~( $(p :: regexp_meta.Parsed) )': // ~uncaptured
-  regexp_meta.pack("(?:" ++ regexp_meta.unpack(p) ++ ")")
-#//
-regexp.macro '$(kw :: Keyword): ( $(p :: regexp_meta.Parsed) )':
-  unless kw.
-  regexp_meta.pack("(?:" ++ regexp_meta.unpack(p) ++ ")")
 
 #//
 module test:
@@ -410,8 +578,12 @@ module test:
     ~eval
     rx'("x")(0)'
     ~throws "backreference"
+
+//deptricated?
+#// 
 regexp.macro 'not property : $(prop :: Identifier)': // TODO not property {x} vs. property {^x} --> necessary to keep both?
-  regexp_meta.pack("\\P{" ++ to_string(prop) ++ "}") // additionally, does the not <x> thing feel tired? alternative?
+  wrap(prop, "\\P{", "}") // additionally, does the not <x> thing feel tired? alternative?
+#//
 regexp.macro 'property : $(prop :: Identifier)':
   regexp_meta.pack("\\p{" ++ to_string(prop) ++ "}")
 #//
@@ -428,71 +600,7 @@ module test:
     p1 == p2
     ~is #true
 
-// `#%juxtapose` is implicitly added after something that's
-// parsed and before a non-operator
-regexp.macro '$left #%juxtapose $right':
-  ~same_as: #%call
-  regexp_meta.pack("" ++ regexp_meta.unpack(left) ++ regexp_meta.unpack(right))
 
-// `#%call` is implicitly added between a parsed term
-// and parentheses; we want just the same thing
-// as juxtaposition here, though
-regexp.macro '$left #%call $tail ...':
-  ~same_as: #%juxtapose
-  values('$left', '#%juxtapose $tail ...')
-
-meta:
-  fun atomic(stx) :~ String:
-    match regexp_meta.unpack(stx)
-    | ".": "."
-    | s: to_string(s) // TODO: originally s: "(?:" ++ s ++ ")" better?
-
-regexp.macro
-| '$left || $right':
-    ~weaker_than: #%juxtapose ~other +
-    ~stronger_than: !
-    regexp_meta.pack(atomic(left) ++ "|" ++ atomic(right)) // TODO: atomic needed? likely no!
-//| '$left ||; $(right :: regexp_meta.Parsed)':
-//    regexp_meta.pack(atomic(left) ++ "|" ++ atomic(right))
-
-#//
-regexp.macro '#%alts $rst':
-  [print(rst), ...]
-  //regexp_meta.pack(atomic(fst) ++ [ "|" ++ atomic(rst), ...])
-#//
-rx'| "a"
-   | "v"'
-
-regexp.macro
-| '$left * lazy':
-    ~weaker_than: #%juxtapose ~other
-    ~stronger_than: ||
-    regexp_meta.pack(atomic(left) ++ "*?")
-| '$left *':
-    regexp_meta.pack(atomic(left) ++ "*")
-
-regexp.macro
-| '$left + lazy':
-    ~weaker_than: #%juxtapose ~other
-    ~stronger_than: ||
-    regexp_meta.pack(atomic(left) ++ "+?")
-| '$left +':
-    regexp_meta.pack(atomic(left) ++ "+")
-
-regexp.macro
-| '$left ? lazy':
-    ~weaker_than: #%juxtapose #%call
-    regexp_meta.pack(atomic(left) ++ "??")
-| '$left ?':
-    regexp_meta.pack(atomic(left) ++ "?")
-#//
-module test:
-  rx'"a" + lazy'
-  //rx'"?" lazy'
-  rx'"a"? lazy'
-  rx'"a" lazy'
-
-//'$([^"a"])'
 #//
 module test:
   check:
@@ -505,43 +613,7 @@ module test:
     ~eval
     rx'"x"++'
     ~raises "" // TODO update
-
-// `#%comp` is implicitly added between a parsed term
-// and curly braces
-    // TODO LAZY
-regexp.macro #%comp:
-  ~stronger_than: #%juxtapose #%call
-| '$left #%comp {$(min :: Int), _}':
-    regexp_meta.pack(atomic(left) ++ "{" +& min.unwrap() ++ ",}")
-| '$left #%comp {$(min :: Int), $(max :: Int)}':
-    regexp_meta.pack(atomic(left) ++ "{" +& min.unwrap() ++ "," +& max.unwrap() ++ "}")
-| '$left #%comp {$(count :: Int)}':
-    regexp_meta.pack(atomic(left) ++ "{" +& count.unwrap() ++ "}")
-
-regexp.macro 
-| '^ $right':
-    ~weaker_than: #%juxtapose #%call $
-    regexp_meta.pack("^" ++ regexp_meta.unpack(right))
-
-regexp.macro '! $right':
-  ~weaker_than: ~other
-  ~stronger_than: #%juxtpapose #%call
-  regexp_meta.pack("(?!" ++ regexp_meta.unpack(right) ++ ")")
-
-regexp.macro '$left word bound':
-  ~stronger_than: #%juxtapose #%call
-  ~same_as ^
-  regexp_meta.pack(atomic(left) ++ "\\b")
-
-regexp.macro '$left in word':
-  ~stronger_than: #%juxtapose #%call
-  ~same_as ^
-  regexp_meta.pack(atomic(left) ++ "\\B")
-
-regexp.macro 'only first $rgxp':
-  ~stronger_than ^
-  regexp_meta.pack("(?>" ++ regexp_meta.pack(rgxp) ++ ")")
-
+#//
 regexp.macro 'numrng: $(lhs :: Int) - $(rhs :: Int)':
   when !(lhs is_a PosInt && rhs is_a PosInt)
   | error("you cannot take ranges of non integers")

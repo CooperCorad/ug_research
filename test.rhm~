@@ -3,15 +3,72 @@
 import:
   file("regex_prototype.rhm") open
 
-def inside_word = rx'"hello" in word'
+def float_or_int = rx\
+'^(~~(["0" - "9"]* "." ["0" - "9"]+)  \
+||  ~~(["0" - "9"]+ "." ["0" - "9"]*) \
+|| ~~(digit+))$'
 
-rx_split(inside_word, "hellomyfriend")
+print("Matching on either a float or integer:\n")
+rx_match(float_or_int, ".0")
+rx_match(float_or_int, "0.")
+rx_match(float_or_int, "123")
+rx_match(float_or_int, "131.23232323")
+rx_match(float_or_int, "131313138979")
+print("Should fail:\n")
+rx_match(float_or_int, "1.2.")
 
-def r = rx'"a" ([$digit]+) " " ([$alpha]+) any*'
+def phone_number = rx\
+'^( ~~("+"[digit] space ?)? /* allows for a country code with option space */ ("(" [digit]{3} ")"|| [digit]{3}) space ? \ // area code with optional space && parens
+([digit]{3}) ~~("-")? \ // telephone prefix with optional dash
+([digit]{4}) ) $' //line number, match must end with last digit
+print("matching phone numbers:\n")
+rx_match(phone_number, "(555) 776-2323")[0]
+rx_match(phone_number, "+0(123)456-7890")[0]
+rx_match(phone_number, "+0 (123)456-7890")
+rx_match(phone_number, "+01234567890")
 
-rx_match(r, "a123456 helloi 1223")
+def phone_match = rx_match(phone_number, "(123) 456-7890")
+print(phone_match +& "\n")
+print(phone_match[0] +& "\n")
+print(phone_match[2] +& "\n")
+print(phone_match[3] +& "\n")
+print(phone_match[4] +& "\n")
 
-rx_match_as_list(rx'("x"any)', "12x4x1")
 
-fun y (x, ...):
-  print([x, ...])
+print("\n")
+
+
+
+def email = rx\
+'^ ~~( ~~(["a"-"z" "0"-"9" "!#$%&'*+/=?^_`{|}~-"]+ ~~("." [alnum "!#$%&'*+/=?^_`{|}~-"]+)*) \ // matches all valid characters before "@"
+"@"\ //midway!
+~~( ~~([alnum] ~~([alnum]* ["a"-"z" "0"-"9"])? ".")+ \
+[alnum] ~~( [alnum "-"]* [alnum])? || "[" \
+~~( ~~( ("2" ("5" ["0"-"5"] || ["0"-"4"] ["0"-"9"]) || "1" ["0"-"9"]{2} || ["1"-"9"]? ["0"-"9"])) "."){3} \
+~~( ("2" ("5" ["0"-"5"] || ["0"-"4"] ["0"-"9"]) || "1" ["0"-"9"]{2} || ["1"-"9"]? ["0"-"9"]) || ["a"-"z" "0"-"9" "-"]* ["a"-"z" "0"-"9"]) "]" \ // 30-33 --> all valid chars after "@"
+))$'
+
+print("Matching on emails:\n")
+rx_match(email, "u1310898@umail.utah.edu")[0]
+rx_match(email, "u1310898@um.ail.ut.a.h.edu")[0]
+rx_match(email, "a.cert~!@monsterous.email.for.you1243.edu")[0]
+rx_match(email, "a{0}.2424.*&@spooky.scary.com")[0]
+print("Should fail:\n")
+rx_match(email, "emails_fails@umail.utah.edu@xtz")
+print("\n")
+
+
+def n0_255 = rx'~~([digit] // posix [0-9] keyword
+                     || [digit] [digit]
+                     || ["01"] [digit] [digit]
+                     || "2" ["0" - "4"] [digit]
+                     || "25" ["0" - "5"])'
+
+def ip = rx'^ ($n0_255) ~~("." ($n0_255)){3} $'
+
+print("Matching on IP Adresses:\n")
+rx_match(ip, "127.0.0.1")[0]
+rx_match(ip, "255.255.255.255")[0]
+print("Should fail:\n")
+rx_match(ip, "256.0.0.1")
+rx_match(ip, "1.2.3")

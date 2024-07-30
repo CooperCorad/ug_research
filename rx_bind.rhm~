@@ -1,0 +1,53 @@
+#lang rhombus/static/and_meta
+
+import:
+  file("regex_prototype.rhm") open
+
+bind.macro 'rx $(id :: Identifier) $rx_exp...':
+  bind_meta.pack('(rx_infoer,
+                   ($id, $rx_exp...))')
+
+bind.infoer 'rx_infoer($static_info, ($id, $rx_exp))':
+  //let rx_info = bind_meta.get_info(rx, static_info)
+  //print(rx_info +& "\n\n")
+  //print(id +& "\n\n")
+  //print(rx +& "\n\n")
+  //print(bind_meta.get_info(id, static_info))
+  //let annot:
+    //"matching " +& id +& " to " +& to_string(rx)
+  '("matching(rx(_))",
+    $id,
+    (), //TODO stat inf needed?
+    (($id, [()], ())),
+    rx_matcher,
+    rx_committer,
+    rx_binder,
+    ($id, $rx_exp))'
+
+bind.matcher 'rx_matcher($rhs, $id, $IF, $success, $failure)':
+  print("rhs" +& rhs)
+  '$IF is_str($rhs)
+   | $success
+   | $failure'
+
+bind.binder 'rx_committer($arg, $id)':
+
+  ''
+
+bind.binder 'rx_binder($arg, $id)':
+  print("arg " +& arg +& "\n")
+  print("id " +& id +& "\n")
+  match id
+  | '($total_id, $rx_exp)':
+      print(total_id +& "\n")
+      print(rx_exp +& "\n\n")
+      //print(rx'"a"')
+  'let x = 1'
+  'def $id: $arg'
+  
+
+
+fun is_str(arg):
+  print("stringling" +& arg +& "\n")
+  print(arg is_a String)
+  arg is_a String

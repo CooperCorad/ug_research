@@ -61,7 +61,7 @@ c_range.macro '#%parens ( $(pat :: c_range_meta.Parsed) )':
   c_range_meta.do_pack('[#%parens, $pat]')
 
 c_range.macro '#%literal $(s :: String)':
-  c_range_meta.do_pack('[#%literal, $(to_string(s.unwrap()))]') //TODO: better way to deal with racket string-copy than to_string? 
+  c_range_meta.do_pack('[#%literal, $(to_string(s.unwrap()))]') 
 
 c_range.macro '$left #%juxtapose $right':
   ~weaker_than && -- -
@@ -71,15 +71,6 @@ c_range.macro '$left #%juxtapose $right':
 c_range.macro '$left #%call $tail ...':
   ~same_as: #%juxtapose
   c_range_meta.do_pack('[#%juxtapose, $left, $tail...]')
-
-#//
-c_range.macro '#%brackets [$(p :: c_range_meta.Parsed)]': //TODO and #%index
-  ~weaker_than: #%juxtapose #%call
-  c_range_meta.do_pack('[#%brackets, $(c_range_meta.unpack(p))]')
-#//
-c_range.macro '$left #%index [$(right :: c_range_meta.Parsed)]':
-  ~weaker_than: #%juxtapose #%call
-  c_range_meta.pack(c_range_meta.unpack(left) ++ "[" ++ c_range_meta.unpack(right) ++ "]")  
 
 c_range.macro '^ $right':
   ~weaker_than: #%juxtapose #%call
