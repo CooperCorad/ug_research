@@ -67,7 +67,6 @@ space.enforest regexp:
     fun unpack(stx) :: String:
       do_unpack(stx, #false).unwrap()
     fun id_parse(id):
-      print(id)
       match id
       | 'alpha': atomic("[[:alpha:]]")
       | 'upper': atomic("[[:upper:]]")
@@ -176,6 +175,7 @@ regexp.macro '$left #%juxtapose $right':
 regexp.macro '$left #%call $tail ...':
   ~same_as: #%juxtapose
   values('$left', '#%juxtapose $tail ...')
+  //combine(left, tail, ...)
 
 // Unnamed capture group
 regexp.macro '~~( $(p :: regexp_meta.Parsed) )': // ~uncaptured
@@ -186,7 +186,31 @@ regexp.macro '~~( $(p :: regexp_meta.Parsed) )': // ~uncaptured
   | '[$cg_str, #false]':
       regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#false]]')
 
+//backreferences TODO, $right?? both l & r??
+regexp.macro
+| '$left backref ($br)':
+    ~stronger_than: #%parens
+    ~weaker_than: #%juxtapose
+    //let '$(left :: regexp_meta.Parsed)' = left
+    match regexp_meta.do_unpack(left)
+    | '[$cg_str, [$cg_id_list, ...]]':
+        match br
+        | '$(br :: Identifier)':
+            def index = find_and_report([cg_id_list, ...], br)
+            if index
+            | append(left, "\\" +& index)
+            | throw("you cannot reference a nonexistant capture group: " +& Syntax.unwrap(br))
+        | '$(br :: Int)':
+            let br = br.unwrap()
+            if br is_a PosInt
+            | append(left, "\\" +& br)
+            | throw("you cannot reference a nonexistant capture group: " +& br)
+    | '[$cg_str, #false]':
+        throw("you cannot reference a nonexistant capture group: " +& Syntax.unwrap(br)) //regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#false]]')
+//| 'backref ($br) $right': depricated for now
+    
 
+    
 // Operators
 regexp.macro
 | '$left || $right':
@@ -310,6 +334,16 @@ meta:
         regexp_meta.do_pack('[$(l +& in_str.unwrap() +& r), [$in_ids, ...]]')
     | '[$in_str, #false]':
         regexp_meta.do_pack('[$(l +& in_str.unwrap() +& r), #false]')
+
+  fun find_and_report(id_list, id :: Syntax):
+    def ids :: List = List.to_list(id_list)
+    def mutable res = #false
+    for (index: 0..(ids.length()),
+         t_id: ids):
+      match t_id
+      | '#'$tt_id': when (tt_id.unwrap() == id.unwrap())
+                    | res := index + 1
+    res
 
 // Escape operators + end of line operator
 regexp.macro
@@ -450,7 +484,9 @@ fun rx_get(px):
       rx_string
   | [(rx_string :: String), #false]:
       rx_string
-  | thing:
+  | rx_string :: String:
+      rx_string
+  | ~else:
       throw("rx functions do not accept " +& px)
 
   
@@ -463,8 +499,10 @@ fun rx_match(px, input,
   match base.#{regexp-match}(base.#{pregexp}(rx_get(px)), input, start_pos, end_pos, output_port, input_prefix)
   | (m :: PairList) :
       def mList = (for List (match : m):
-                     
-                     to_string(match))
+                     if match
+                     | to_string(match)
+                     | match)
+      
       
       rx_ret(mList[0], mList.rest)
   | ~else: #false

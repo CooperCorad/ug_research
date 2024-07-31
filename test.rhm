@@ -3,10 +3,10 @@
 import:
   file("regex_prototype.rhm") open
 
-def float_or_int = rx\
-'^(~~(["0" - "9"]* "." ["0" - "9"]+)  \
-||  ~~(["0" - "9"]+ "." ["0" - "9"]*) \
-|| ~~(digit+))$'
+def float_or_int = rx'
+  ^(~~(["0" - "9"]* "." ["0" - "9"]+)  
+      ||  ~~(["0" - "9"]+ "." ["0" - "9"]*) 
+      || ~~(digit+))$'
 
 print("Matching on either a float or integer:\n")
 rx_match(float_or_int, ".0")
@@ -26,30 +26,36 @@ rx_is_match(is_wrapped, "a")
 rx_is_match(is_wrapped, "{a")
 rx_is_match(is_wrapped, "[a]b")
 
-def phone_number = rx\
-'^ ~~( ~~("+"[digit] space ?)? /* allows for a country code with option space */ ("(" [digit]{3} ")"|| [digit]{3}) space ? \ // area code with optional space && parens
-~~([digit]{3}) ("-")? \ // telephone prefix with optional dash
-~~([digit]{4}) ) $' //line number, match must end with last digit
+def phone_number = rx'
+  ^ ~~("+"[digit] space ?)? /* allows for a country code with option space */ ~~("(" [digit]{3} ")"|| [digit]{3}) space ?  // area code with optional space && parens
+          ~~([digit]{3}) ("-")?  // telephone prefix with optional dash
+          ~~([digit]{4})  $' //line number, match must end with last digit
 print("matching phone numbers:\n")
 rx_match(phone_number, "(555) 776-2323")[0]
 rx_match(phone_number, "+0(123)456-7890")[0]
 rx_match(phone_number, "+0 (123)456-7890")
 rx_match(phone_number, "+01234567890")
 
-def phone_match = rx_match(phone_number, "(123) 456-7890")
+def phone_match :~ rx_ret = rx_match(phone_number, "(123) 456-7890")
 print(phone_match +& "\n")
 print(phone_match[0] +& "\n")
+print(phone_match[1] +& "\n")
 print(phone_match[2] +& "\n")
 print(phone_match[3] +& "\n")
 print(phone_match[4] +& "\n")
 
 
+
+
+
+print("\n")
+
 print("\n")
 
 
 
-def email = rx\
-'^ ~~( ~~(["a"-"z" "0"-"9" "!#$%&'*+/=?^_`{|}~-"]+ ~~("." [alnum "!#$%&'*+/=?^_`{|}~-"]+)*) \ // matches all valid characters before "@"
+
+def email = rx'^ ~~( ~~(["a"-"z" "0"-"9" "!#$%&'*+/=?^_`{|}~-"]+ ~~("." [alnum "!#$%&'*+/=?^_`{|}~-"]+)*) \ // matches all valid characters before "@"
 "@"\ //midway!
 ~~( ~~([alnum] ~~([alnum]* ["a"-"z" "0"-"9"])? ".")+ \
 [alnum] ~~( [alnum "-"]* [alnum])? || "[" \
@@ -67,11 +73,12 @@ rx_match(email, "emails_fails@umail.utah.edu@xtz")
 print("\n")
 
 
-def n0_255 = rx'~~([digit] // posix [0-9] keyword
-                     || [digit] [digit]
-                     || ["01"] [digit] [digit]
-                     || "2" ["0" - "4"] [digit]
-                     || "25" ["0" - "5"])'
+def n0_255 = rx'
+  ~~([digit] // posix [0-9] keyword
+       || [digit] [digit]
+       || ["01"] [digit] [digit]
+       || "2" ["0" - "4"] [digit]
+       || "25" ["0" - "5"])'
 
 def ip = rx'^ ($n0_255) ~~("." ($n0_255)){3} $'
 
@@ -90,3 +97,16 @@ rx_match(time_12hr, "10:59 am")
 rx_match(time_12hr, "12:66 am")
 rx_match(time_12hr, "13:00 am")
 rx_match(time_12hr, "12:34 fm")
+
+print("\n")
+
+print("messing with character ranges\n")
+
+def subtraction_1 = rx'["a"-"z" -- "f"-"p"]'
+subtraction_1
+def subtraction_2 = rx'["a"-"z" && "bfr0"]'
+subtraction_2
+def intersect_1 = rx'["a"-"x" && "f"-"z"]'
+intersect_1
+def intersect_2 = rx'["a"-"w" && "f"-"r"]'
+intersect_2

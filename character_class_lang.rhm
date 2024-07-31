@@ -233,7 +233,7 @@ c_range.macro
                      | 'print': "[:print:]"
                      | 'cntrl': "[:cntrl:]"
                      | 'ascii': "[:ascii:]"
-                     | ~else: error("huh"))
+                     | ~else: throw("invalid identifier in character range: " +& id.unwrap()))
           values(nstx, val)
       | ~else: error("Nested character ranges are illegal, if you wish to capture the characters \"[\" or \"]\" simply put them in quotes")
     //print(pat +& "\n\n")

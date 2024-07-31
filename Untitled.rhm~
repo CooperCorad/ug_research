@@ -1,0 +1,5 @@
+#lang rhombus
+import:
+  file("regex_prototype.rhm") open
+
+def x = rx'~~("a")'
