@@ -103,19 +103,24 @@ expr.macro '«rx '$(pat :: regexp_meta.Parsed)'»':
 // Implicit forms
 
 regexp.macro'$left #%index [$c_rng]':
-  ~weaker_than: #%juxtapose
+  ~stronger_than: ^
+  ~weaker_than: #%parens #%juxtapose
+  ~same_as: #%brackets
   let '$(c_rng :: c_range_meta.Parsed)' = '[$c_rng]'
   combine(left, atomic(c_range_meta.do_unpack(c_rng).unwrap()))
 
 regexp.macro '#%brackets [$c_rng]':
-  ~weaker_than #%juxtapose
+  ~weaker_than #%parens
+  ~same_as: #%index
   let '$(c_rng :: c_range_meta.Parsed)' = '[$c_rng]'
   atomic((c_range_meta.do_unpack(c_rng)).unwrap_all())
 
 
 // `#%parens` is implicitly added before parentheses
 // that do not have a parsed term or operator before
-regexp.macro
+regexp.macro #%parens:
+  ~weaker_than: #%literal
+  ~same_as: ~~
 | '#%parens (mode : {$(mode :: Identifier), ...} : $(rgxp :: regexp_meta.Parsed))':
     //~same_as ^
     def modes = (for values(accum = "(?") (m: [mode, ...]):
@@ -160,8 +165,8 @@ regexp.macro
 
 // '#%literal' is implicitly added before atomic structures (strings here)
 regexp.macro '#%literal $(s :: String)':
-  import lib("racket/base.rkt").#{regexp-quote}
-  atomic(#{regexp-quote}(s.unwrap()))
+  ~weaker_than: * + ? #%comp
+  atomic(qt(s.unwrap()))
 
 // `#%juxtapose` is implicitly added after something that's
 // parsed and before a non-operator
@@ -179,7 +184,7 @@ regexp.macro '$left #%call $tail ...':
 
 // Unnamed capture group
 regexp.macro '~~( $(p :: regexp_meta.Parsed) )': // ~uncaptured
-  //regexp_meta.pack("(?:" ++ regexp_meta.unpack(p) ++ ")")
+  ~same_as: #%parens
   match regexp_meta.do_unpack(p)
   | '[$cg_str, [$cg_id_list, ...]]':
       regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#false, $cg_id_list, ...]]')
@@ -214,36 +219,37 @@ regexp.macro
 // Operators
 regexp.macro
 | '$left || $right':
-    ~weaker_than: #%juxtapose ~other +
-    ~stronger_than: !
+    ~stronger_than: ~other
     //regexp_meta.pack(atomic(left) ++ "|" ++ atomic(right)) // TODO: atomic needed? likely no!
     combine(left, right, "||")
 
 regexp.macro
 | '$left * lazy': //TODO: optional lazy rather than double macro
-    ~weaker_than: #%juxtapose ~other
-    ~stronger_than: ||
+    ~weaker_than: #%juxtapose
+    ~same_as: + ?
     append(left, "*?")
 | '$left *':
     append(left, "*")
 
 regexp.macro
 | '$left + lazy':
-    ~weaker_than: #%juxtapose ~other
-    ~stronger_than: ||
+    ~weaker_than: #%juxtapose
+    ~same_as: * ?
     append(left, "+?")
 | '$left +':
     append(left, "+")
 
 regexp.macro
 | '$left ? lazy':
-    ~weaker_than: #%juxtapose #%call
+    ~weaker_than: #%juxtapose
+    ~same_as: * +
     append(left, "??")
 | '$left ?':
     append(left, "?")
 
 regexp.macro #%comp:
-  ~stronger_than: #%juxtapose #%call
+  ~weaker_than: #%juxtapose #%call
+  ~same_as: * + ?
 | '$left #%comp {$(min :: Int), _}':
     append(left, "{" +& min.unwrap() ++ ",}")
 | '$left #%comp {$(min :: Int), $(max :: Int)}':
@@ -253,7 +259,8 @@ regexp.macro #%comp:
 
 regexp.macro 
 | '^ $right':
-    ~weaker_than: #%juxtapose #%call $ #%index
+    ~weaker_than: ~other
+    //~stronger_than: $
     prepend(right, "^")
     
 regexp.macro '$left word bound':
@@ -274,6 +281,11 @@ regexp.macro 'only first $rgxp':
 // Meta functions
 
 meta:
+  import lib("racket/base.rkt").#{regexp-quote}
+
+  fun qt(str :~ String) :~ String:
+    #{regexp-quote}(str)
+
   fun atomic(stx) :~ String:
     regexp_meta.do_pack('[$(to_string(stx)), #false]') // TODO: originally s: "(?:" ++ s ++ ")" better?
 
@@ -347,21 +359,23 @@ meta:
 
 // Escape operators + end of line operator
 regexp.macro
+| '$left $('$')':
+    ~stronger_than: ^
+    ~weaker_than: ~other
+    append(left, "$")
 | '$('$')$(id :: Identifier)':
-    ~weaker_than #%juxtapose
+    ~same_as: #%literal
     def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
     unless id_value
     | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
     wrap(regexp_meta.do_pack(id_value), "(?:", ")")
-| '$left $('$')$(id :: Identifier)':
+/*| '$left $('$')$(id :: Identifier)':
     ~weaker_than #%juxtapose
     def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
     unless id_value
     | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
     combine(regexp_meta.unpack(left), wrap(id_value.unwrap(), "(?:", ")"))
-| '$left $('$')':
-    append(left, "$")
-    
+    */ // TODO: NEED?
 
 macro '$left eq? $right':
   'check:
@@ -502,8 +516,6 @@ fun rx_match(px, input,
                      if match
                      | to_string(match)
                      | match)
-      
-      
       rx_ret(mList[0], mList.rest)
   | ~else: #false
 

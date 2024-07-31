@@ -26,6 +26,7 @@ rx_is_match(is_wrapped, "a")
 rx_is_match(is_wrapped, "{a")
 rx_is_match(is_wrapped, "[a]b")
 
+  
 def phone_number = rx'
   ^ ~~("+"[digit] space ?)? /* allows for a country code with option space */ ~~("(" [digit]{3} ")"|| [digit]{3}) space ?  // area code with optional space && parens
           ~~([digit]{3}) ("-")?  // telephone prefix with optional dash
@@ -73,6 +74,7 @@ rx_match(email, "emails_fails@umail.utah.edu@xtz")
 print("\n")
 
 
+
 def n0_255 = rx'
   ~~([digit] // posix [0-9] keyword
        || [digit] [digit]
@@ -101,7 +103,7 @@ rx_match(time_12hr, "12:34 fm")
 print("\n")
 
 print("messing with character ranges\n")
-
+/*
 def subtraction_1 = rx'["a"-"z" -- "f"-"p"]'
 subtraction_1
 def subtraction_2 = rx'["a"-"z" && "bfr0"]'
@@ -110,3 +112,6 @@ def intersect_1 = rx'["a"-"x" && "f"-"z"]'
 intersect_1
 def intersect_2 = rx'["a"-"w" && "f"-"r"]'
 intersect_2
+*/
+
+rx'^ ["a"] || ("b") $'
