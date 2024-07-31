@@ -221,7 +221,7 @@ regexp.macro
 | '$left || $right':
     ~stronger_than: ~other
     //regexp_meta.pack(atomic(left) ++ "|" ++ atomic(right)) // TODO: atomic needed? likely no!
-    combine(left, right, "||")
+    combine(left, right, "|")
 
 regexp.macro
 | '$left * lazy': //TODO: optional lazy rather than double macro
