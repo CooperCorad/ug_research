@@ -2,6 +2,11 @@
 import:
   file("regex_prototype.rhm") open
 
-def x = rx'~~("a")'
-def y = rx_match(x, "b")
-y[0]
+rx_match(rx'"a" (followed by "b")', "aa")
+rx_match(rx'"a" (not followed by "b")', "ab")
+rx_match(rx'"a" (followed by "b")', "ab")
+rx_match(rx'"a" (followed by "b")', "aa")
+
+
+rx_match(rx'("a" precedes) "b"', "ab")
+rx_match(rx'("a" not precedes) "b"', "cb")

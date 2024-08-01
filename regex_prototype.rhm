@@ -20,7 +20,7 @@ export:
   // Operators for use inside `rx'...'`:
   //any newline
   || * ? + ^ $ ! word in only 
-  if matches ~~
+  if ~~
   - -- && ^
 
   // Implicit operators, like the one before a literal string;
@@ -142,18 +142,20 @@ regexp.macro #%parens:
     let '$(tst :: regexp_meta.Parsed)' = '$tst ...' // TODO move then and else to similaer forms to avoid out of order parsing -> error issues
     //regexp_meta.pack("(?" ++ regexp_meta.unpack(tst) ++ regexp_meta.unpack(then) ++ "|" ++ regexp_meta.unpack(else) ++ ")")
     wrap(append(combine(tst, then, ""), "|"), "(?", ")")
-| '#%parens (matches prev $(tst :: regexp_meta.Parsed))':
-    //regexp_meta.pack("(?<=" ++ regexp_meta.unpack(tst) ++ ")")
-    wrap(tst, "(?<=", ")")
-| '#%parens (not matches prev $(tst :: regexp_meta.Parsed))':
+| '#%parens ($tst not precedes)':
     //regexp_meta.pack("(?<!" ++ regexp_meta.unpack(tst) ++ ")")
+    let '$(tst :: regexp_meta.Parsed)' = tst
     wrap(tst, "(?<!", ")")
-| '#%parens (matches $(tst :: regexp_meta.Parsed))':
-    //regexp_meta.pack("(?=" ++ regexp_meta.unpack(tst) ++ ")")
-    wrap(tst, "(?=", ")")
-| '#%parens (not matches $(tst :: regexp_meta.Parsed))':
+| '#%parens ($tst precedes)':
+    //regexp_meta.pack("(?<=" ++ regexp_meta.unpack(tst) ++ ")")
+    let '$(tst :: regexp_meta.Parsed)' = tst
+    wrap(tst, "(?<=", ")")
+| '#%parens (not followed by $(tst :: regexp_meta.Parsed))':
     //regexp_meta.pack("(?!" ++ regexp_meta.unpack(tst) ++")")
     wrap(tst, "(?!", ")")
+| '#%parens (followed by $(tst :: regexp_meta.Parsed))':
+    //regexp_meta.pack("(?=" ++ regexp_meta.unpack(tst) ++ ")")
+    wrap(tst, "(?=", ")")
 | '#%parens ($(n :: Int))':
     unless n.unwrap() is_a PosInt  //TODO: does racket allow \0 backref or does it start at \1?
     | syntax_meta.error("You cannot check a match on capture group number <= 0")
@@ -256,6 +258,10 @@ regexp.macro #%comp:
     append(left, "{" +& min.unwrap() ++ "," +& max.unwrap() ++ "}")
 | '$left #%comp {$(count :: Int)}':
     append(left, "{" +& count.unwrap() ++ "}")
+
+regexp.macro '.':
+  ~same_as: $
+  atomic(".")
 
 regexp.macro 
 | '^ $right':
