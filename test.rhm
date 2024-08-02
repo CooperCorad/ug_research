@@ -114,4 +114,4 @@ def intersect_2 = rx'["a"-"w" && "f"-"r"]'
 intersect_2
 */
 
-rx'^ ["a"] || ("b") $'
+rx'^ [^"a"] || ("b") $'
