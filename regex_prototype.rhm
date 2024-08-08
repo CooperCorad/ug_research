@@ -337,6 +337,7 @@ meta:
   fun wrap(in, l, r):
     append(prepend(in, l), r)
 
+
   fun find_and_report(id_list, id :: Syntax):
     def ids :: List = List.to_list(id_list)
     def mutable res = #false
@@ -419,7 +420,7 @@ class rx_ret(match, list :: List):
   private implements Indexable
   
   private override describe(mode, recur) :: String:
-    to_string(match, ~mode: #'expr)
+    to_string(match)
   override method to_list():
     [match] ++ list
   private override method get(index):

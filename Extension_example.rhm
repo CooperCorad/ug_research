@@ -1,6 +1,5 @@
 #lang rhombus/static/and_meta
 
-
 import:
   file("regex_prototype.rhm") open
   file("regex_prototype.rhm").regexp
@@ -47,6 +46,6 @@ meta:
       | [remainder]
 
 def range = rx'^ rng 5 to 34 $'
-rx_match(range, "27") +& "hi"
+rx_match(range, "27") 
 rx_match(range, "2")
 rx_match(range, "35")
