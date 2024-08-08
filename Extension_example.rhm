@@ -1,0 +1,52 @@
+#lang rhombus/static/and_meta
+
+
+import:
+  file("regex_prototype.rhm") open
+  file("regex_prototype.rhm").regexp
+  file("regex_prototype.rhm").regexp_meta
+
+regexp.macro 'rng $(a :: Int) to $(b :: Int)':
+  let a :: Int = a.unwrap()
+  let b :: Int = b.unwrap()
+  unless a < b
+  | throw("you cannot make a range from a larger number (" +& a +& ") to a smaller number (" +& b +& ")")
+
+  def a_str = to_string(a)
+  def b_str = to_string(b)
+
+  cond
+  | a_str.length() == 1:
+      cond
+      | b_str.length() == 1:
+          atomic("(?:[" +& a_str +& "-" +& b_str +& "])")
+      | b_str.length() == 2:
+          def [b_0, b_1] = int_list(b)
+          atomic("(?:[" +& a_str +& "-" +& "9]|[1-" +& (b_0 - 1) +& "][0-9]|" +& b_0 +& "[0-" +& b_1 +& "])")
+      | ~else:
+          throw("this range is currently not supported")
+  | a_str.length() == 2:
+      cond
+      | b_str.length() == 2:
+          def [a_0, a_1] = int_list(a)
+          def [b_0, b_1] = int_list(b)
+          if a_0 == b_0
+          | atomic("(?:" +& a_0 +& "[" +& a_1 +& "-" +& b_1 +& "])")
+          | atomic("(?:" +& a_0 +& "[" +& a_1 +& "-9]|[" +& (a_0 + 1) +& "-" +& (b_0 - 1) +& "][0-9]|" +& b_0 +& "[0-" +& b_1 +& "])")
+      | ~else:
+          throw("this range is currently not supported")
+  | ~else:
+      throw("this range is currently not supported")
+  
+meta:
+  fun int_list(x):
+      def remainder = x mod 10
+      def divided  = x div 10
+      if divided != 0
+      | int_list(divided) :: List ++ [remainder]
+      | [remainder]
+
+def range = rx'^ rng 5 to 34 $'
+rx_match(range, "27") +& "hi"
+rx_match(range, "2")
+rx_match(range, "35")

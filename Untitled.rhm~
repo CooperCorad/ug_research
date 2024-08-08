@@ -2,4 +2,5 @@
 import:
   file("regex_prototype.rhm") open
 
-def x = rx'~~("a")'
+
+rx_match(rx'"a" word bound " ""c"', "a c")

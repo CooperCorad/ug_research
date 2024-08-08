@@ -1,0 +1,38 @@
+#lang rhombus/static/and_meta
+
+
+import:
+  file("regex_prototype.rhm") open
+  file("regex_prototype.rhm").regexp
+  file("regex_prototype.rhm").regexp_meta
+
+regexp.macro 'rng $(a :: Int) to $(b :: Int)':
+  let a :: Int = a.unwrap()
+  let b :: Int = b.unwrap()
+  unless a < b
+  | throw("you cannot make a range from a larger number (" +& a +& ") to a smaller number (" +& b +& ")")
+
+  def a_str = to_string(a)
+  def b_str = to_string(b)
+
+  cond
+  | a_str.length() == 1:
+      cond
+      | b_str.length() == 1:
+          atomic("(?:[" +& a_str +& "-" +& b_str +& "])")
+      | b_str.length() == 2:
+          def b_0 = to_string(b_str[0])
+          def b_1 = to_string(b_str[1])
+          atomic("(?:[" +& a_str +& "-" +& "9]|[1-")
+  
+  | ~else:
+      throw("this range is currently not supported")
+  
+
+fun int_list(x :~ Int):
+    def remainder = x mod 10
+    def divided = x / 10
+    unless divided == 0:
+    | [remainder, int_list(divided)]
+
+

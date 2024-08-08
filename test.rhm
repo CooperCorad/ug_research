@@ -114,4 +114,11 @@ def intersect_2 = rx'["a"-"w" && "f"-"r"]'
 intersect_2
 */
 
-rx'^ [^"a"] || ("b") $'
+def wraps = rx'("(" precedes) any  (followed by ")")'
+rx_match(wraps, "(a)")
+
+
+
+def word = rx'words +'
+def rx'(whole_match: (name: ($word ".")+ $word) "@" \
+                   (domain: $word ("." $word) +))' = "My email is my.name@example.com."

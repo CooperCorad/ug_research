@@ -1,6 +1,0 @@
-#lang rhombus
-import:
-  file("regex_prototype.rhm") open
-
-
-rx_match(rx'"a" word bound " ""c"', "a c")

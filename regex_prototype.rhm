@@ -2,12 +2,10 @@
 
 import:
   lib("racket/base.rkt") as base
-  file("character_class_lang.rhm").c_range
-  file("character_class_lang.rhm").c_range_meta
+  file("character_range_lang.rhm").c_range
+  file("character_range_lang.rhm").c_range_meta
  
-  file("character_class_lang.rhm") open
-  //file("character_class_lang.rhm").#%brackets
-  //file("character_class_lang.rhm")
+  file("character_range_lang.rhm") open
 
 export:
   // The main form:
@@ -74,7 +72,7 @@ space.enforest regexp:
       | 'digit': atomic("[[:digit:]]")
       | 'hex': atomic("[[:xdigit:]]")
       | 'alnum': atomic("[[:alnum:]]")
-      | 'word': atomic("[[:word:]]")
+      | 'words': atomic("[[:word:]]")
       | 'blank': atomic("[[:blank:]]")
       | 'space': atomic("[[:space:]]")
       | 'graph': atomic("[[:graph:]]")
@@ -83,7 +81,6 @@ space.enforest regexp:
       | 'ascii': atomic("[[:ascii:]]")
       | 'any': atomic(".")
       | 'newline': atomic("\n")
-      | 'space': atomic(" ")
       | ~else:
           syntax_meta.error("invalid id " +& id)
 
@@ -122,7 +119,6 @@ regexp.macro #%parens:
   ~weaker_than: #%literal
   ~same_as: ~~
 | '#%parens (mode : {$(mode :: Identifier), ...} : $(rgxp :: regexp_meta.Parsed))':
-    //~same_as ^
     def modes = (for values(accum = "(?") (m: [mode, ...]):
                    match m
                    | 'sensitive': accum +& "-i"
@@ -130,7 +126,6 @@ regexp.macro #%parens:
                    | 'multiline': accum +& "m"
                    | 'monoline': accum +& "-m"
                    | ~else: syntax_meta.error("mode: " +& m +& " not recognized"))
-    //regexp_meta.pack(modes +& ":" ++ regexp_meta.unpack(rgxp) ++ ")")
     wrap(rgxp, modes +& ":", ")")
 | '#%parens ($(name :: Identifier): $(cap_group :: regexp_meta.Parsed))': //TODO: check that order of nested c_gs is correct ? [name] ++ list_from_parsed?
     match regexp_meta.do_unpack(cap_group)
@@ -140,29 +135,22 @@ regexp.macro #%parens:
         regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#'$name]]')
 | '#%parens (if $tst ... | $(then :: regexp_meta.Parsed) | $(else :: regexp_meta.Parsed))':
     let '$(tst :: regexp_meta.Parsed)' = '$tst ...' // TODO move then and else to similaer forms to avoid out of order parsing -> error issues
-    //regexp_meta.pack("(?" ++ regexp_meta.unpack(tst) ++ regexp_meta.unpack(then) ++ "|" ++ regexp_meta.unpack(else) ++ ")")
     wrap(append(combine(tst, then, ""), "|"), "(?", ")")
 | '#%parens ($tst not precedes)':
-    //regexp_meta.pack("(?<!" ++ regexp_meta.unpack(tst) ++ ")")
     let '$(tst :: regexp_meta.Parsed)' = tst
     wrap(tst, "(?<!", ")")
 | '#%parens ($tst precedes)':
-    //regexp_meta.pack("(?<=" ++ regexp_meta.unpack(tst) ++ ")")
     let '$(tst :: regexp_meta.Parsed)' = tst
     wrap(tst, "(?<=", ")")
 | '#%parens (not followed by $(tst :: regexp_meta.Parsed))':
-    //regexp_meta.pack("(?!" ++ regexp_meta.unpack(tst) ++")")
     wrap(tst, "(?!", ")")
 | '#%parens (followed by $(tst :: regexp_meta.Parsed))':
-    //regexp_meta.pack("(?=" ++ regexp_meta.unpack(tst) ++ ")")
     wrap(tst, "(?=", ")")
 | '#%parens ($(n :: Int))':
     unless n.unwrap() is_a PosInt  //TODO: does racket allow \0 backref or does it start at \1?
     | syntax_meta.error("You cannot check a match on capture group number <= 0")
-    //regexp_meta.pack("(" ++ n ++ ")")
     wrap(atomic(n.unwrap()), "(", ")")
 | '#%parens ($(p :: regexp_meta.Parsed))': //TODO: move to non-cg
-    //regexp_meta.pack("(?:" ++ regexp_meta.unpack(p) ++ ")")
     wrap(p, "(?:", ")")
 
 // '#%literal' is implicitly added before atomic structures (strings here)
@@ -198,7 +186,6 @@ regexp.macro
 | '$left backref ($br)':
     ~stronger_than: #%parens
     ~weaker_than: #%juxtapose
-    //let '$(left :: regexp_meta.Parsed)' = left
     match regexp_meta.do_unpack(left)
     | '[$cg_str, [$cg_id_list, ...]]':
         match br
@@ -214,16 +201,18 @@ regexp.macro
             | throw("you cannot reference a nonexistant capture group: " +& br)
     | '[$cg_str, #false]':
         throw("you cannot reference a nonexistant capture group: " +& Syntax.unwrap(br)) //regexp_meta.do_pack('[$("(" +& cg_str.unwrap() +& ")"), [#false]]')
-//| 'backref ($br) $right': depricated for now
-    
 
     
-// Operators
-regexp.macro
+// Operators ~stronger_than: ~other
+/*regexp.macro
 | '$left || $right':
-    ~stronger_than: ~other
-    //regexp_meta.pack(atomic(left) ++ "|" ++ atomic(right)) // TODO: atomic needed? likely no!
     combine(left, right, "|")
+| '$left ||':
+    append(left, "|")*/
+regexp.macro '||':
+  ~stronger_than: #%literal
+  atomic("|")
+
 
 regexp.macro
 | '$left * lazy': //TODO: optional lazy rather than double macro
@@ -268,7 +257,7 @@ regexp.macro
     ~weaker_than: ~other
     //~stronger_than: $
     prepend(right, "^")
-    
+
 regexp.macro '$left word bound':
   ~stronger_than: #%juxtapose #%call
   ~same_as ^
@@ -346,12 +335,7 @@ meta:
          regexp_meta.do_pack('[$(prep +& r_str.unwrap()), #false]')
 
   fun wrap(in, l, r):
-    let '$(in :: regexp_meta.Parsed)' = in
-    match in
-    | '[$in_str, [$in_ids, ...]]':
-        regexp_meta.do_pack('[$(l +& in_str.unwrap() +& r), [$in_ids, ...]]')
-    | '[$in_str, #false]':
-        regexp_meta.do_pack('[$(l +& in_str.unwrap() +& r), #false]')
+    append(prepend(in, l), r)
 
   fun find_and_report(id_list, id :: Syntax):
     def ids :: List = List.to_list(id_list)
@@ -365,23 +349,21 @@ meta:
 
 // Escape operators + end of line operator
 regexp.macro
-| '$left $('$')':
-    ~stronger_than: ^
-    ~weaker_than: ~other
-    append(left, "$")
 | '$('$')$(id :: Identifier)':
-    ~same_as: #%literal
+    ~stronger_than: #%literal
     def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
     unless id_value
     | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
     wrap(regexp_meta.do_pack(id_value), "(?:", ")")
-/*| '$left $('$')$(id :: Identifier)':
+| '$left $('$')$(id :: Identifier)':
+    ~stronger_than: $
     ~weaker_than #%juxtapose
     def id_value :~ Syntax = statinfo_meta.lookup(id, 'bind_key')
     unless id_value
     | throw (id.unwrap() +& ": undefined or is not defined under the rx'...' form")
-    combine(regexp_meta.unpack(left), wrap(id_value.unwrap(), "(?:", ")"))
-    */ // TODO: NEED?
+    combine(left, wrap(regexp_meta.do_pack(id_value), "(?:", ")"))
+| '$left $('$')':
+    append(left, "$")
 
 macro '$left eq? $right':
   'check:
